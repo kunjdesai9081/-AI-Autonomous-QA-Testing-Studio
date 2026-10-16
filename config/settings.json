@@ -1,0 +1,21 @@
+{
+  "force_g4f": true,
+  "show_browser": true,
+  "enable_visual": true,
+  "test_variables": [
+    {
+      "Key": "Email",
+      "Value": "test_user@example.com"
+    },
+    {
+      "Key": "Password",
+      "Value": "password123"
+    }
+  ],
+  "clickup_api_token": "",
+  "clickup_list_id": "",
+  "target_platform": "android_cdp",
+  "platform_orientation": "portrait",
+  "network_preset": "direct",
+  "cdp_url": ""
+}

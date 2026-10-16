@@ -1,0 +1,11 @@
+Type,Generated_By,Target,Test_Step_Description,Expected_Result
+Mobile_Native,⚙️ Native Device Inspector,com.cuvora.carinfo,Verify Vehicle Number Search Input is displayed with placeholder '(e.g. AB 12 CD 3456)',Search bar is visible and editable at bounds [147 825][1074 981]
+Mobile_Native,⚙️ Native Device Inspector,com.cuvora.carinfo,Tap on 'Pay challan' quick action card,Navigates to Challan payment and lookup screen
+Mobile_Native,⚙️ Native Device Inspector,com.cuvora.carinfo,Tap on 'Car insurance' quick action card,Navigates to Car insurance policy comparison screen
+Mobile_Native,⚙️ Native Device Inspector,com.cuvora.carinfo,Tap on 'RC search' quick action card,Opens vehicle Registration Certificate details screen
+Mobile_Native,⚙️ Native Device Inspector,com.cuvora.carinfo,Tap on 'FASTag Manager' quick action card,Navigates to FASTag balance and recharge screen
+Mobile_Native,⚙️ Native Device Inspector,com.cuvora.carinfo,Verify 'Buy & sell car' marketplace options (Buy used car / Buy new car / Sell your car / Car loan),All 4 marketplace action cards are clickable and visible
+Mobile_Native,⚙️ Native Device Inspector,com.cuvora.carinfo,Tap bottom navigation tab 'Insurance',Switches to Insurance overview tab [315 2494][630 2674]
+Mobile_Native,⚙️ Native Device Inspector,com.cuvora.carinfo,Tap bottom navigation tab 'My garage',Switches to My garage vehicle management tab [630 2494][945 2674]
+Mobile_Native,⚙️ Native Device Inspector,com.cuvora.carinfo,Tap bottom navigation tab 'Services',Switches to Car services and maintenance tab [945 2494][1260 2674]
+Mobile_Native,⚙️ Native Device Inspector,com.cuvora.carinfo,Tap bottom navigation tab 'Home',Returns to CarInfo main dashboard [0 2494][315 2674]

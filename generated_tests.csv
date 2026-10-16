@@ -1,0 +1,933 @@
+Run,Type,Generated_By,Target,Test_Step_Description,Expected_Result,Status,Duration,Actual_Result,Screenshot,Execution_Notes,Playwright_Code
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,Step 1: Open target app on device -> Step 2: Verify screen title and primary header ' Reservation Chart Indian railway logo' is visible.,Screen ' Reservation Chart Indian railway logo' loads successfully with all native components,PENDING,-,-,reports\mobile_flow_1_com_yatra_sathi_20261016_153034.png,Native UI Automator assertion,"# Android Native Assertion (Playwright Device Shell)
+# Target: android://com.yatra.sathi/.MainActivity
+# Verify screen:  Reservation Chart Indian railway logo
+assert device.shell(""dumpsys window | grep mCurrentFocus"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native ' Reservation Chart Indian railway logo #1' component at (540, 1100) -> Step 2: Tap ' Reservation Chart Indian railway logo #1' native component -> Step 3: Verify component responds to user touch interaction.",Component ' Reservation Chart Indian railway logo #1' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_1_com_yatra_sathi_20261016_153034.png,"Class: android.widget.FrameLayout | Bounds: [0,0][1260,2800]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native input field '15-10-2026' at (540, 1100) -> Step 2: Focus and enter test query into '15-10-2026' input with 'QA_Test_Value' -> Step 3: Verify input receives focus and accepts user input.",Native input field '15-10-2026' receives focus and accepts user input,PENDING,-,-,reports\mobile_flow_1_com_yatra_sathi_20261016_153034.png,"Bounds: [21,549][1239,675]","# Android Native Input (Playwright Device Shell)
+# adb shell input tap 540 1100
+# adb shell input text ""QA_Test_Value""
+device.shell(""input tap 540 1100"")
+device.shell('input text ""QA_Test_Value""')
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'VALSAD - BL | 07:15 Hrs' component at (540, 1100) -> Step 2: Tap 'VALSAD - BL | 07:15 Hrs' native component -> Step 3: Verify component responds to user touch interaction.",Component 'VALSAD - BL | 07:15 Hrs' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_1_com_yatra_sathi_20261016_153034.png,"Class: android.widget.Spinner | Bounds: [24,732][1146,852]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Action Button' component at (540, 1100) -> Step 2: Tap 'Action Button' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Action Button' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_1_com_yatra_sathi_20261016_153034.png,"Class: android.widget.Button | Bounds: [1146,732][1236,852]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Show Reservation Chart' component at (540, 1100) -> Step 2: Tap 'Show Reservation Chart' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Show Reservation Chart' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_1_com_yatra_sathi_20261016_153034.png,"Class: android.widget.Button | Bounds: [327,921][933,1032]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Blinkit #1' component at (540, 1100) -> Step 2: Tap 'Blinkit #1' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Blinkit #1' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_1_com_yatra_sathi_20261016_153034.png,"Class: android.view.View | Bounds: [0,0][0,0]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,Step 1: Open target app on device -> Step 2: Verify screen title and primary header ' Reservation Chart Indian railway logo' is visible.,Screen ' Reservation Chart Indian railway logo' loads successfully with all native components,PENDING,-,-,reports\mobile_flow_2_com_yatra_sathi_20261016_153039.png,Native UI Automator assertion,"# Android Native Assertion (Playwright Device Shell)
+# Target: android://com.yatra.sathi/.MainActivity
+# Verify screen:  Reservation Chart Indian railway logo
+assert device.shell(""dumpsys window | grep mCurrentFocus"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native ' Reservation Chart Indian railway logo #1' component at (540, 1100) -> Step 2: Tap ' Reservation Chart Indian railway logo #1' native component -> Step 3: Verify component responds to user touch interaction.",Component ' Reservation Chart Indian railway logo #1' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_2_com_yatra_sathi_20261016_153039.png,"Class: android.widget.FrameLayout | Bounds: [0,0][1260,2800]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native input field '15-10-2026' at (540, 1100) -> Step 2: Focus and enter test query into '15-10-2026' input with 'QA_Test_Value' -> Step 3: Verify input receives focus and accepts user input.",Native input field '15-10-2026' receives focus and accepts user input,PENDING,-,-,reports\mobile_flow_2_com_yatra_sathi_20261016_153039.png,"Bounds: [21,549][1239,675]","# Android Native Input (Playwright Device Shell)
+# adb shell input tap 540 1100
+# adb shell input text ""QA_Test_Value""
+device.shell(""input tap 540 1100"")
+device.shell('input text ""QA_Test_Value""')
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Previous Month' component at (540, 1100) -> Step 2: Tap 'Previous Month' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Previous Month' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_2_com_yatra_sathi_20261016_153039.png,"Class: android.widget.Button | Bounds: [51,717][111,780]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Choose Month' component at (540, 1100) -> Step 2: Tap 'Choose Month' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Choose Month' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_2_com_yatra_sathi_20261016_153039.png,"Class: android.widget.Button | Bounds: [459,702][663,795]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Choose Year' component at (540, 1100) -> Step 2: Tap 'Choose Year' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Choose Year' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_2_com_yatra_sathi_20261016_153039.png,"Class: android.widget.Button | Bounds: [660,702][801,795]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Next Month' component at (540, 1100) -> Step 2: Tap 'Next Month' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Next Month' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_2_com_yatra_sathi_20261016_153039.png,"Class: android.widget.Button | Bounds: [1149,717][1209,780]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'VALSAD - BL | 07:15 Hrs' component at (540, 1100) -> Step 2: Tap 'VALSAD - BL | 07:15 Hrs' native component -> Step 3: Verify component responds to user touch interaction.",Component 'VALSAD - BL | 07:15 Hrs' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_2_com_yatra_sathi_20261016_153039.png,"Class: android.widget.Spinner | Bounds: [24,732][1146,852]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Action Button' component at (540, 1100) -> Step 2: Tap 'Action Button' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Action Button' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_2_com_yatra_sathi_20261016_153039.png,"Class: android.widget.Button | Bounds: [1146,732][1236,852]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Show Reservation Chart' component at (540, 1100) -> Step 2: Tap 'Show Reservation Chart' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Show Reservation Chart' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_2_com_yatra_sathi_20261016_153039.png,"Class: android.widget.Button | Bounds: [327,921][933,1032]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Blinkit #1' component at (540, 1100) -> Step 2: Tap 'Blinkit #1' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Blinkit #1' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_2_com_yatra_sathi_20261016_153039.png,"Class: android.view.View | Bounds: [0,0][0,0]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,Step 1: Open target app on device -> Step 2: Verify screen title and primary header 'Previous Month Choose Month Choose Year' is visible.,Screen 'Previous Month Choose Month Choose Year' loads successfully with all native components,PENDING,-,-,reports\mobile_flow_3_com_yatra_sathi_20261016_153045.png,Native UI Automator assertion,"# Android Native Assertion (Playwright Device Shell)
+# Target: android://com.yatra.sathi/.MainActivity
+# Verify screen: Previous Month Choose Month Choose Year
+assert device.shell(""dumpsys window | grep mCurrentFocus"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Previous Month Choose Month Choose Year #1' component at (540, 1100) -> Step 2: Tap 'Previous Month Choose Month Choose Year #1' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Previous Month Choose Month Choose Year #1' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_3_com_yatra_sathi_20261016_153045.png,"Class: android.widget.FrameLayout | Bounds: [0,0][1260,2800]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Previous Month' component at (540, 1100) -> Step 2: Tap 'Previous Month' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Previous Month' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_3_com_yatra_sathi_20261016_153045.png,"Class: android.widget.Button | Bounds: [51,717][111,780]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Choose Month' component at (540, 1100) -> Step 2: Tap 'Choose Month' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Choose Month' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_3_com_yatra_sathi_20261016_153045.png,"Class: android.widget.Button | Bounds: [429,702][693,795]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Choose Year' component at (540, 1100) -> Step 2: Tap 'Choose Year' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Choose Year' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_3_com_yatra_sathi_20261016_153045.png,"Class: android.widget.Button | Bounds: [690,702][831,795]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Next Month' component at (540, 1100) -> Step 2: Tap 'Next Month' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Next Month' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_3_com_yatra_sathi_20261016_153045.png,"Class: android.widget.Button | Bounds: [1149,717][1209,780]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Blinkit #1' component at (540, 1100) -> Step 2: Tap 'Blinkit #1' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Blinkit #1' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_3_com_yatra_sathi_20261016_153045.png,"Class: android.view.View | Bounds: [0,0][0,0]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,Step 1: Open target app on device -> Step 2: Verify screen title and primary header 'Previous Year Choose Year Next Year' is visible.,Screen 'Previous Year Choose Year Next Year' loads successfully with all native components,PENDING,-,-,reports\mobile_flow_4_com_yatra_sathi_20261016_153051.png,Native UI Automator assertion,"# Android Native Assertion (Playwright Device Shell)
+# Target: android://com.yatra.sathi/.MainActivity
+# Verify screen: Previous Year Choose Year Next Year
+assert device.shell(""dumpsys window | grep mCurrentFocus"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Previous Year Choose Year Next Year #1' component at (540, 1100) -> Step 2: Tap 'Previous Year Choose Year Next Year #1' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Previous Year Choose Year Next Year #1' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_4_com_yatra_sathi_20261016_153051.png,"Class: android.widget.FrameLayout | Bounds: [0,0][1260,2800]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Previous Year' component at (540, 1100) -> Step 2: Tap 'Previous Year' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Previous Year' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_4_com_yatra_sathi_20261016_153051.png,"Class: android.widget.Button | Bounds: [51,717][111,780]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Choose Year' component at (540, 1100) -> Step 2: Tap 'Choose Year' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Choose Year' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_4_com_yatra_sathi_20261016_153051.png,"Class: android.widget.Button | Bounds: [561,702][699,795]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Next Year' component at (540, 1100) -> Step 2: Tap 'Next Year' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Next Year' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_4_com_yatra_sathi_20261016_153051.png,"Class: android.widget.Button | Bounds: [1149,717][1209,780]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Blinkit #1' component at (540, 1100) -> Step 2: Tap 'Blinkit #1' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Blinkit #1' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_4_com_yatra_sathi_20261016_153051.png,"Class: android.view.View | Bounds: [0,0][0,0]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,Step 1: Open target app on device -> Step 2: Verify screen title and primary header 'Previous Decade 2020 - 2029 Next Decade' is visible.,Screen 'Previous Decade 2020 - 2029 Next Decade' loads successfully with all native components,PENDING,-,-,reports\mobile_flow_5_com_yatra_sathi_20261016_153102.png,Native UI Automator assertion,"# Android Native Assertion (Playwright Device Shell)
+# Target: android://com.yatra.sathi/.MainActivity
+# Verify screen: Previous Decade 2020 - 2029 Next Decade
+assert device.shell(""dumpsys window | grep mCurrentFocus"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Previous Decade 2020 - 2029 Next Decade #1' component at (540, 1100) -> Step 2: Tap 'Previous Decade 2020 - 2029 Next Decade #1' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Previous Decade 2020 - 2029 Next Decade #1' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_5_com_yatra_sathi_20261016_153102.png,"Class: android.widget.FrameLayout | Bounds: [0,0][1260,2800]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Previous Decade' component at (540, 1100) -> Step 2: Tap 'Previous Decade' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Previous Decade' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_5_com_yatra_sathi_20261016_153102.png,"Class: android.widget.Button | Bounds: [51,702][111,765]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Next Decade' component at (540, 1100) -> Step 2: Tap 'Next Decade' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Next Decade' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_5_com_yatra_sathi_20261016_153102.png,"Class: android.widget.Button | Bounds: [1149,702][1209,765]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Blinkit #1' component at (540, 1100) -> Step 2: Tap 'Blinkit #1' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Blinkit #1' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_5_com_yatra_sathi_20261016_153102.png,"Class: android.view.View | Bounds: [0,0][0,0]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,Step 1: Open target app on device -> Step 2: Verify screen title and primary header 'Previous Decade 2010 - 2019 Next Decade' is visible.,Screen 'Previous Decade 2010 - 2019 Next Decade' loads successfully with all native components,PENDING,-,-,reports\mobile_flow_6_com_yatra_sathi_20261016_153108.png,Native UI Automator assertion,"# Android Native Assertion (Playwright Device Shell)
+# Target: android://com.yatra.sathi/.MainActivity
+# Verify screen: Previous Decade 2010 - 2019 Next Decade
+assert device.shell(""dumpsys window | grep mCurrentFocus"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Previous Decade 2010 - 2019 Next Decade #1' component at (540, 1100) -> Step 2: Tap 'Previous Decade 2010 - 2019 Next Decade #1' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Previous Decade 2010 - 2019 Next Decade #1' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_6_com_yatra_sathi_20261016_153108.png,"Class: android.widget.FrameLayout | Bounds: [0,0][1260,2800]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Previous Decade' component at (540, 1100) -> Step 2: Tap 'Previous Decade' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Previous Decade' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_6_com_yatra_sathi_20261016_153108.png,"Class: android.widget.Button | Bounds: [51,702][111,765]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Next Decade' component at (540, 1100) -> Step 2: Tap 'Next Decade' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Next Decade' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_6_com_yatra_sathi_20261016_153108.png,"Class: android.widget.Button | Bounds: [1149,702][1209,765]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Blinkit #1' component at (540, 1100) -> Step 2: Tap 'Blinkit #1' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Blinkit #1' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_6_com_yatra_sathi_20261016_153108.png,"Class: android.view.View | Bounds: [0,0][0,0]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,Step 1: Open target app on device -> Step 2: Verify screen title and primary header 'Bar Root' is visible.,Screen 'Bar Root' loads successfully with all native components,PENDING,-,-,reports\mobile_flow_7_com_yatra_sathi_20261016_153136.png,Native UI Automator assertion,"# Android Native Assertion (Playwright Device Shell)
+# Target: android://com.yatra.sathi/.MainActivity
+# Verify screen: Bar Root
+assert device.shell(""dumpsys window | grep mCurrentFocus"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Bar Root' component at (540, 1100) -> Step 2: Tap 'Bar Root' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Bar Root' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_7_com_yatra_sathi_20261016_153136.png,"Class: android.widget.LinearLayout | Bounds: [0,0][1260,2800]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,Step 1: Open target app on device -> Step 2: Verify screen title and primary header ' PNR Enquiry Indian railway logo' is visible.,Screen ' PNR Enquiry Indian railway logo' loads successfully with all native components,PENDING,-,-,reports\mobile_flow_8_com_yatra_sathi_20261016_153142.png,Native UI Automator assertion,"# Android Native Assertion (Playwright Device Shell)
+# Target: android://com.yatra.sathi/.MainActivity
+# Verify screen:  PNR Enquiry Indian railway logo
+assert device.shell(""dumpsys window | grep mCurrentFocus"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native ' PNR Enquiry Indian railway logo #1' component at (540, 1100) -> Step 2: Tap ' PNR Enquiry Indian railway logo #1' native component -> Step 3: Verify component responds to user touch interaction.",Component ' PNR Enquiry Indian railway logo #1' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_8_com_yatra_sathi_20261016_153142.png,"Class: android.widget.FrameLayout | Bounds: [0,0][1260,2800]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native input field 'Withoutgrouping' at (540, 1100) -> Step 2: Focus and enter test query into 'Withoutgrouping' input with 'QA_Test_Value' -> Step 3: Verify input receives focus and accepts user input.",Native input field 'Withoutgrouping' receives focus and accepts user input,PENDING,-,-,reports\mobile_flow_8_com_yatra_sathi_20261016_153142.png,"Bounds: [21,252][1233,438]","# Android Native Input (Playwright Device Shell)
+# adb shell input tap 540 1100
+# adb shell input text ""QA_Test_Value""
+device.shell(""input tap 540 1100"")
+device.shell('input text ""QA_Test_Value""')
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Show PNR Details' component at (540, 1100) -> Step 2: Tap 'Show PNR Details' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Show PNR Details' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_8_com_yatra_sathi_20261016_153142.png,"Class: android.widget.Button | Bounds: [390,504][870,615]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,Step 1: Open target app on device -> Step 2: Verify screen title and primary header ' Reservation Chart Indian railway logo' is visible.,Screen ' Reservation Chart Indian railway logo' loads successfully with all native components,PENDING,-,-,reports\mobile_flow_9_com_yatra_sathi_20261016_153227.png,Native UI Automator assertion,"# Android Native Assertion (Playwright Device Shell)
+# Target: android://com.yatra.sathi/.MainActivity
+# Verify screen:  Reservation Chart Indian railway logo
+assert device.shell(""dumpsys window | grep mCurrentFocus"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native ' Reservation Chart Indian railway logo #1' component at (540, 1100) -> Step 2: Tap ' Reservation Chart Indian railway logo #1' native component -> Step 3: Verify component responds to user touch interaction.",Component ' Reservation Chart Indian railway logo #1' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_9_com_yatra_sathi_20261016_153227.png,"Class: android.widget.FrameLayout | Bounds: [0,0][1260,2800]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native input field '15-10-2026' at (540, 1100) -> Step 2: Focus and enter test query into '15-10-2026' input with 'QA_Test_Value' -> Step 3: Verify input receives focus and accepts user input.",Native input field '15-10-2026' receives focus and accepts user input,PENDING,-,-,reports\mobile_flow_9_com_yatra_sathi_20261016_153227.png,"Bounds: [21,549][1239,675]","# Android Native Input (Playwright Device Shell)
+# adb shell input tap 540 1100
+# adb shell input text ""QA_Test_Value""
+device.shell(""input tap 540 1100"")
+device.shell('input text ""QA_Test_Value""')
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'VALSAD - BL | 07:15 Hrs' component at (540, 1100) -> Step 2: Tap 'VALSAD - BL | 07:15 Hrs' native component -> Step 3: Verify component responds to user touch interaction.",Component 'VALSAD - BL | 07:15 Hrs' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_9_com_yatra_sathi_20261016_153227.png,"Class: android.widget.Spinner | Bounds: [24,732][1146,852]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Action Button' component at (540, 1100) -> Step 2: Tap 'Action Button' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Action Button' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_9_com_yatra_sathi_20261016_153227.png,"Class: android.widget.Button | Bounds: [1146,732][1236,852]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Show Reservation Chart' component at (540, 1100) -> Step 2: Tap 'Show Reservation Chart' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Show Reservation Chart' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_9_com_yatra_sathi_20261016_153227.png,"Class: android.widget.Button | Bounds: [327,921][933,1032]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,Step 1: Open target app on device -> Step 2: Verify screen title and primary header 'Ad Container' is visible.,Screen 'Ad Container' loads successfully with all native components,PENDING,-,-,reports\mobile_flow_10_com_yatra_sathi_20261016_153248.png,Native UI Automator assertion,"# Android Native Assertion (Playwright Device Shell)
+# Target: android://com.yatra.sathi/.MainActivity
+# Verify screen: Ad Container
+assert device.shell(""dumpsys window | grep mCurrentFocus"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Buy Toys for Kids blinkit.com/s/?q=toys Shop Now #1' component at (540, 1100) -> Step 2: Tap 'Buy Toys for Kids blinkit.com/s/?q=toys Shop Now #1' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Buy Toys for Kids blinkit.com/s/?q=toys Shop Now #1' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_10_com_yatra_sathi_20261016_153248.png,"Class: android.widget.FrameLayout | Bounds: [0,0][1260,2800]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Buy Toys for Kids #1' component at (540, 1100) -> Step 2: Tap 'Buy Toys for Kids #1' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Buy Toys for Kids #1' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_10_com_yatra_sathi_20261016_153248.png,"Class: android.view.View | Bounds: [252,2199][1008,2322]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,Step 1: Open target app on device -> Step 2: Verify screen title and primary header ' Train Composition Indian railway logo' is visible.,Screen ' Train Composition Indian railway logo' loads successfully with all native components,PENDING,-,-,reports\mobile_flow_11_com_yatra_sathi_20261016_153301.png,Native UI Automator assertion,"# Android Native Assertion (Playwright Device Shell)
+# Target: android://com.yatra.sathi/.MainActivity
+# Verify screen:  Train Composition Indian railway logo
+assert device.shell(""dumpsys window | grep mCurrentFocus"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native ' Train Composition Indian railway logo #1' component at (540, 1100) -> Step 2: Tap ' Train Composition Indian railway logo #1' native component -> Step 3: Verify component responds to user touch interaction.",Component ' Train Composition Indian railway logo #1' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_11_com_yatra_sathi_20261016_153301.png,"Class: android.widget.FrameLayout | Bounds: [0,0][1260,2800]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native '12929 - BRC INTERCITY #2' component at (540, 1100) -> Step 2: Tap '12929 - BRC INTERCITY #2' native component -> Step 3: Verify component responds to user touch interaction.",Component '12929 - BRC INTERCITY #2' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_11_com_yatra_sathi_20261016_153301.png,"Class: android.widget.Button | Bounds: [1134,255][1197,318]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Vacant Berth Status #2' component at (540, 1100) -> Step 2: Tap 'Vacant Berth Status #2' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Vacant Berth Status #2' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_11_com_yatra_sathi_20261016_153301.png,"Class: android.widget.Button | Bounds: [1134,816][1197,879]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,Step 1: Open target app on device -> Step 2: Verify screen title and primary header 'Divshadow' is visible.,Screen 'Divshadow' loads successfully with all native components,PENDING,-,-,reports\mobile_flow_12_com_yatra_sathi_20261016_153320.png,Native UI Automator assertion,"# Android Native Assertion (Playwright Device Shell)
+# Target: android://com.yatra.sathi/.MainActivity
+# Verify screen: Divshadow
+assert device.shell(""dumpsys window | grep mCurrentFocus"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native input field 'Train No' at (540, 1100) -> Step 2: Focus and enter test query into 'Train No' input with 'QA_Test_Value' -> Step 3: Verify input receives focus and accepts user input.",Native input field 'Train No' receives focus and accepts user input,PENDING,-,-,reports\mobile_flow_12_com_yatra_sathi_20261016_153320.png,"Bounds: [39,456][1221,585]","# Android Native Input (Playwright Device Shell)
+# adb shell input tap 540 1100
+# adb shell input text ""QA_Test_Value""
+device.shell(""input tap 540 1100"")
+device.shell('input text ""QA_Test_Value""')
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,Step 1: Open target app on device -> Step 2: Verify screen title and primary header 'Divshadow' is visible.,Screen 'Divshadow' loads successfully with all native components,PENDING,-,-,reports\mobile_flow_13_com_yatra_sathi_20261016_153325.png,Native UI Automator assertion,"# Android Native Assertion (Playwright Device Shell)
+# Target: android://com.yatra.sathi/.MainActivity
+# Verify screen: Divshadow
+assert device.shell(""dumpsys window | grep mCurrentFocus"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native input field 'Train No' at (540, 1100) -> Step 2: Focus and enter test query into 'Train No' input with 'QA_Test_Value' -> Step 3: Verify input receives focus and accepts user input.",Native input field 'Train No' receives focus and accepts user input,PENDING,-,-,reports\mobile_flow_13_com_yatra_sathi_20261016_153325.png,"Bounds: [39,456][1221,585]","# Android Native Input (Playwright Device Shell)
+# adb shell input tap 540 1100
+# adb shell input text ""QA_Test_Value""
+device.shell(""input tap 540 1100"")
+device.shell('input text ""QA_Test_Value""')
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Cbb' component at (540, 1100) -> Step 2: Tap 'Cbb' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Cbb' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_13_com_yatra_sathi_20261016_153325.png,"Class: android.widget.Button | Bounds: [1182,846][1248,912]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,Step 1: Open target app on device -> Step 2: Verify screen title and primary header ' Train Composition Indian railway logo' is visible.,Screen ' Train Composition Indian railway logo' loads successfully with all native components,PENDING,-,-,reports\mobile_flow_14_com_yatra_sathi_20261016_153411.png,Native UI Automator assertion,"# Android Native Assertion (Playwright Device Shell)
+# Target: android://com.yatra.sathi/.MainActivity
+# Verify screen:  Train Composition Indian railway logo
+assert device.shell(""dumpsys window | grep mCurrentFocus"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native ' Train Composition Indian railway logo #1' component at (540, 1100) -> Step 2: Tap ' Train Composition Indian railway logo #1' native component -> Step 3: Verify component responds to user touch interaction.",Component ' Train Composition Indian railway logo #1' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_14_com_yatra_sathi_20261016_153411.png,"Class: android.widget.FrameLayout | Bounds: [0,0][1260,2800]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native '12929 - BRC INTERCITY #2' component at (540, 1100) -> Step 2: Tap '12929 - BRC INTERCITY #2' native component -> Step 3: Verify component responds to user touch interaction.",Component '12929 - BRC INTERCITY #2' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_14_com_yatra_sathi_20261016_153411.png,"Class: android.widget.Button | Bounds: [1134,255][1197,318]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Vacant Berth Status #2' component at (540, 1100) -> Step 2: Tap 'Vacant Berth Status #2' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Vacant Berth Status #2' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_14_com_yatra_sathi_20261016_153411.png,"Class: android.widget.Button | Bounds: [1134,816][1197,879]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Train Running Status #1' component at (540, 1100) -> Step 2: Tap 'Train Running Status #1' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Train Running Status #1' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_14_com_yatra_sathi_20261016_153411.png,"Class: android.widget.Button | Bounds: [108,2178][648,2289]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Train Schedule' component at (540, 1100) -> Step 2: Tap 'Train Schedule' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Train Schedule' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_14_com_yatra_sathi_20261016_153411.png,"Class: android.widget.Button | Bounds: [777,2178][1188,2289]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,Step 1: Open target app on device -> Step 2: Verify screen title and primary header 'Zoom in Zoom out Leaflet' is visible.,Screen 'Zoom in Zoom out Leaflet' loads successfully with all native components,PENDING,-,-,reports\mobile_flow_15_com_yatra_sathi_20261016_153451.png,Native UI Automator assertion,"# Android Native Assertion (Playwright Device Shell)
+# Target: android://com.yatra.sathi/.MainActivity
+# Verify screen: Zoom in Zoom out Leaflet
+assert device.shell(""dumpsys window | grep mCurrentFocus"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Zoom in Zoom out Leaflet #1' component at (540, 1100) -> Step 2: Tap 'Zoom in Zoom out Leaflet #1' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Zoom in Zoom out Leaflet #1' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_15_com_yatra_sathi_20261016_153451.png,"Class: android.widget.FrameLayout | Bounds: [0,120][1260,2674]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Zoom in' component at (540, 1100) -> Step 2: Tap 'Zoom in' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Zoom in' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_15_com_yatra_sathi_20261016_153451.png,"Class: android.widget.Button | Bounds: [36,156][126,246]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Zoom out' component at (540, 1100) -> Step 2: Tap 'Zoom out' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Zoom out' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_15_com_yatra_sathi_20261016_153451.png,"Class: android.widget.Button | Bounds: [36,246][126,336]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,Step 1: Open target app on device -> Step 2: Verify screen title and primary header 'App-Interstitial-Slot' is visible.,Screen 'App-Interstitial-Slot' loads successfully with all native components,PENDING,-,-,reports\mobile_flow_16_com_yatra_sathi_20261016_153550.png,Native UI Automator assertion,"# Android Native Assertion (Playwright Device Shell)
+# Target: android://com.yatra.sathi/.MainActivity
+# Verify screen: App-Interstitial-Slot
+assert device.shell(""dumpsys window | grep mCurrentFocus"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native '4.4 Ratings 10M Reviews' component at (540, 1100) -> Step 2: Tap '4.4 Ratings 10M Reviews' native component -> Step 3: Verify component responds to user touch interaction.",Component '4.4 Ratings 10M Reviews' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_16_com_yatra_sathi_20261016_153550.png,"Class: android.view.View | Bounds: [1080,2055][1212,2460]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,Step 1: Open target app on device -> Step 2: Verify screen title and primary header ' Train Composition Indian railway logo' is visible.,Screen ' Train Composition Indian railway logo' loads successfully with all native components,PENDING,-,-,reports\mobile_flow_17_com_yatra_sathi_20261016_153603.png,Native UI Automator assertion,"# Android Native Assertion (Playwright Device Shell)
+# Target: android://com.yatra.sathi/.MainActivity
+# Verify screen:  Train Composition Indian railway logo
+assert device.shell(""dumpsys window | grep mCurrentFocus"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native ' Train Composition Indian railway logo #1' component at (540, 1100) -> Step 2: Tap ' Train Composition Indian railway logo #1' native component -> Step 3: Verify component responds to user touch interaction.",Component ' Train Composition Indian railway logo #1' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_17_com_yatra_sathi_20261016_153603.png,"Class: android.widget.FrameLayout | Bounds: [0,0][1260,2800]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Train Running Status' component at (540, 1100) -> Step 2: Tap 'Train Running Status' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Train Running Status' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_17_com_yatra_sathi_20261016_153603.png,"Class: android.widget.Button | Bounds: [108,1263][648,1374]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Train Schedule' component at (540, 1100) -> Step 2: Tap 'Train Schedule' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Train Schedule' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_17_com_yatra_sathi_20261016_153603.png,"Class: android.widget.Button | Bounds: [777,1263][1188,1374]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Train Running Status On MAP' component at (540, 1100) -> Step 2: Tap 'Train Running Status On MAP' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Train Running Status On MAP' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_17_com_yatra_sathi_20261016_153603.png,"Class: android.widget.Button | Bounds: [270,1395][990,1506]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,Step 1: Open target app on device -> Step 2: Verify screen title and primary header 'Divshadow' is visible.,Screen 'Divshadow' loads successfully with all native components,PENDING,-,-,reports\mobile_flow_18_com_yatra_sathi_20261016_153615.png,Native UI Automator assertion,"# Android Native Assertion (Playwright Device Shell)
+# Target: android://com.yatra.sathi/.MainActivity
+# Verify screen: Divshadow
+assert device.shell(""dumpsys window | grep mCurrentFocus"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native input field 'Train No' at (540, 1100) -> Step 2: Focus and enter test query into 'Train No' input with 'QA_Test_Value' -> Step 3: Verify input receives focus and accepts user input.",Native input field 'Train No' receives focus and accepts user input,PENDING,-,-,reports\mobile_flow_18_com_yatra_sathi_20261016_153615.png,"Bounds: [39,456][1221,585]","# Android Native Input (Playwright Device Shell)
+# adb shell input tap 540 1100
+# adb shell input text ""QA_Test_Value""
+device.shell(""input tap 540 1100"")
+device.shell('input text ""QA_Test_Value""')
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'home' component at (540, 1100) -> Step 2: Tap 'home' native component -> Step 3: Verify component responds to user touch interaction.",Component 'home' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_18_com_yatra_sathi_20261016_153615.png,"Class: android.view.View | Bounds: [180,846][1080,1611]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Sathi Screen #19' component at (540, 1100) -> Step 2: Tap 'Sathi Screen #19' native component -> Step 3: Verify component responds to user touch interaction.",Page 'Sathi Screen #19' loads successfully with all structural elements and navigation containers visible.,,,,reports\mobile_flow_19_com_yatra_sathi_20261016_153621.png,,"# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,Step 1: Open target app on device -> Step 2: Verify screen title and primary header 'Content' is visible.,Screen 'Content' loads successfully with all native components,PENDING,-,-,reports\mobile_flow_20_com_yatra_sathi_20261016_153758.png,Native UI Automator assertion,"# Android Native Assertion (Playwright Device Shell)
+# Target: android://com.yatra.sathi/.MainActivity
+# Verify screen: Content
+assert device.shell(""dumpsys window | grep mCurrentFocus"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Content' component at (540, 1100) -> Step 2: Tap 'Content' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Content' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_20_com_yatra_sathi_20261016_153758.png,"Class: android.widget.FrameLayout | Bounds: [0,120][1260,1702]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,Step 1: Open target app on device -> Step 2: Verify screen title and primary header 'Divshadow' is visible.,Screen 'Divshadow' loads successfully with all native components,PENDING,-,-,reports\mobile_flow_21_com_yatra_sathi_20261016_153804.png,Native UI Automator assertion,"# Android Native Assertion (Playwright Device Shell)
+# Target: android://com.yatra.sathi/.MainActivity
+# Verify screen: Divshadow
+assert device.shell(""dumpsys window | grep mCurrentFocus"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Open Accessibility Panel National Train Enquiry System ir #1' component at (540, 1100) -> Step 2: Tap 'Open Accessibility Panel National Train Enquiry System ir #1' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Open Accessibility Panel National Train Enquiry System ir #1' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_21_com_yatra_sathi_20261016_153804.png,"Class: android.widget.FrameLayout | Bounds: [0,120][1260,2674]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Open Accessibility Panel' component at (540, 1100) -> Step 2: Tap 'Open Accessibility Panel' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Open Accessibility Panel' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_21_com_yatra_sathi_20261016_153804.png,"Class: android.widget.Button | Bounds: [0,0][0,0]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Sidebar Collapse2' component at (540, 1100) -> Step 2: Tap 'Sidebar Collapse2' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Sidebar Collapse2' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_21_com_yatra_sathi_20261016_153804.png,"Class: android.widget.Button | Bounds: [51,285][126,327]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Train Instances #1' component at (540, 1100) -> Step 2: Tap 'Train Instances #1' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Train Instances #1' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_21_com_yatra_sathi_20261016_153804.png,"Class: android.view.View | Bounds: [63,732][519,858]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Journey Station Basis #1' component at (540, 1100) -> Step 2: Tap 'Journey Station Basis #1' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Journey Station Basis #1' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_21_com_yatra_sathi_20261016_153804.png,"Class: android.view.View | Bounds: [531,732][1107,858]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native input field '12936' at (540, 1100) -> Step 2: Focus and enter test query into '12936' input with 'QA_Test_Value' -> Step 3: Verify input receives focus and accepts user input.",Native input field '12936' receives focus and accepts user input,PENDING,-,-,reports\mobile_flow_21_com_yatra_sathi_20261016_153804.png,"Bounds: [63,999][1260,1110]","# Android Native Input (Playwright Device Shell)
+# adb shell input tap 540 1100
+# adb shell input text ""QA_Test_Value""
+device.shell(""input tap 540 1100"")
+device.shell('input text ""QA_Test_Value""')
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Start Date : 17-Oct-2026 16-Oct-2026' component at (540, 1100) -> Step 2: Tap 'Start Date : 17-Oct-2026 16-Oct-2026' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Start Date : 17-Oct-2026 16-Oct-2026' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_21_com_yatra_sathi_20261016_153804.png,"Class: android.view.ViewGroup | Bounds: [93,1350][1167,1764]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native '17-Oct-2026' component at (540, 1100) -> Step 2: Tap '17-Oct-2026' native component -> Step 3: Verify component responds to user touch interaction.",Component '17-Oct-2026' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_21_com_yatra_sathi_20261016_153804.png,"Class: android.view.View | Bounds: [399,1365][774,1491]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native '16-Oct-2026' component at (540, 1100) -> Step 2: Tap '16-Oct-2026' native component -> Step 3: Verify component responds to user touch interaction.",Component '16-Oct-2026' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_21_com_yatra_sathi_20261016_153804.png,"Class: android.view.View | Bounds: [108,1500][492,1629]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native '15-Oct-2026' component at (540, 1100) -> Step 2: Tap '15-Oct-2026' native component -> Step 3: Verify component responds to user touch interaction.",Component '15-Oct-2026' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_21_com_yatra_sathi_20261016_153804.png,"Class: android.view.View | Bounds: [504,1500][882,1629]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native '14-Oct-2026' component at (540, 1100) -> Step 2: Tap '14-Oct-2026' native component -> Step 3: Verify component responds to user touch interaction.",Component '14-Oct-2026' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_21_com_yatra_sathi_20261016_153804.png,"Class: android.view.View | Bounds: [108,1638][486,1764]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native '13-Oct-2026' component at (540, 1100) -> Step 2: Tap '13-Oct-2026' native component -> Step 3: Verify component responds to user touch interaction.",Component '13-Oct-2026' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_21_com_yatra_sathi_20261016_153804.png,"Class: android.view.View | Bounds: [498,1638][876,1764]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Show on Bhuvan Map' component at (540, 1100) -> Step 2: Tap 'Show on Bhuvan Map' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Show on Bhuvan Map' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_21_com_yatra_sathi_20261016_153804.png,"Class: android.widget.Button | Bounds: [174,2061][579,2199]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Sathi Screen #22' component at (540, 1100) -> Step 2: Tap 'Sathi Screen #22' native component -> Step 3: Verify component responds to user touch interaction.",Page 'Sathi Screen #22' loads successfully with all structural elements and navigation containers visible.,,,,reports\mobile_flow_22_com_yatra_sathi_20261016_153812.png,,"# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,Step 1: Open target app on device -> Step 2: Verify screen title and primary header 'Divshadow' is visible.,Screen 'Divshadow' loads successfully with all native components,PENDING,-,-,reports\mobile_flow_23_com_yatra_sathi_20261016_153820.png,Native UI Automator assertion,"# Android Native Assertion (Playwright Device Shell)
+# Target: android://com.yatra.sathi/.MainActivity
+# Verify screen: Divshadow
+assert device.shell(""dumpsys window | grep mCurrentFocus"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native input field 'Train No' at (540, 1100) -> Step 2: Focus and enter test query into 'Train No' input with 'QA_Test_Value' -> Step 3: Verify input receives focus and accepts user input.",Native input field 'Train No' receives focus and accepts user input,PENDING,-,-,reports\mobile_flow_23_com_yatra_sathi_20261016_153820.png,"Bounds: [39,420][1221,549]","# Android Native Input (Playwright Device Shell)
+# adb shell input tap 540 1100
+# adb shell input text ""QA_Test_Value""
+device.shell(""input tap 540 1100"")
+device.shell('input text ""QA_Test_Value""')
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Cbb' component at (540, 1100) -> Step 2: Tap 'Cbb' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Cbb' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_23_com_yatra_sathi_20261016_153820.png,"Class: android.widget.Button | Bounds: [1182,810][1248,876]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,Step 1: Open target app on device -> Step 2: Verify screen title and primary header 'Spot Your Train Train No./Name Titjfj' is visible.,Screen 'Spot Your Train Train No./Name Titjfj' loads successfully with all native components,PENDING,-,-,reports\mobile_flow_24_com_yatra_sathi_20261016_153828.png,Native UI Automator assertion,"# Android Native Assertion (Playwright Device Shell)
+# Target: android://com.yatra.sathi/.MainActivity
+# Verify screen: Spot Your Train Train No./Name Titjfj
+assert device.shell(""dumpsys window | grep mCurrentFocus"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Spot Your Train Train No./Name Titjfj #1' component at (540, 1100) -> Step 2: Tap 'Spot Your Train Train No./Name Titjfj #1' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Spot Your Train Train No./Name Titjfj #1' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_24_com_yatra_sathi_20261016_153828.png,"Class: android.widget.FrameLayout | Bounds: [0,120][1260,1702]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native input field 'Titjfj' at (540, 1100) -> Step 2: Focus and enter test query into 'Titjfj' input with 'QA_Test_Value' -> Step 3: Verify input receives focus and accepts user input.",Native input field 'Titjfj' receives focus and accepts user input,PENDING,-,-,reports\mobile_flow_24_com_yatra_sathi_20261016_153828.png,"Bounds: [39,420][1221,549]","# Android Native Input (Playwright Device Shell)
+# adb shell input tap 540 1100
+# adb shell input text ""QA_Test_Value""
+device.shell(""input tap 540 1100"")
+device.shell('input text ""QA_Test_Value""')
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Cbb' component at (540, 1100) -> Step 2: Tap 'Cbb' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Cbb' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_24_com_yatra_sathi_20261016_153828.png,"Class: android.widget.Button | Bounds: [1182,810][1248,876]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,Step 1: Open target app on device -> Step 2: Verify screen title and primary header 'Content' is visible.,Screen 'Content' loads successfully with all native components,PENDING,-,-,reports\mobile_flow_25_com_yatra_sathi_20261016_153852.png,Native UI Automator assertion,"# Android Native Assertion (Playwright Device Shell)
+# Target: android://com.yatra.sathi/.MainActivity
+# Verify screen: Content
+assert device.shell(""dumpsys window | grep mCurrentFocus"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Content' component at (540, 1100) -> Step 2: Tap 'Content' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Content' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_25_com_yatra_sathi_20261016_153852.png,"Class: android.widget.FrameLayout | Bounds: [0,120][1260,2674]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Sathi Screen #26' component at (540, 1100) -> Step 2: Tap 'Sathi Screen #26' native component -> Step 3: Verify component responds to user touch interaction.",Page 'Sathi Screen #26' loads successfully with all structural elements and navigation containers visible.,,,,reports\mobile_flow_26_com_yatra_sathi_20261016_153859.png,,"# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Sathi Screen #27' component at (540, 1100) -> Step 2: Tap 'Sathi Screen #27' native component -> Step 3: Verify component responds to user touch interaction.",Page 'Sathi Screen #27' loads successfully with all structural elements and navigation containers visible.,,,,reports\mobile_flow_27_com_yatra_sathi_20261016_153907.png,,"# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,Step 1: Open target app on device -> Step 2: Verify screen title and primary header 'Divshadow' is visible.,Screen 'Divshadow' loads successfully with all native components,PENDING,-,-,reports\mobile_flow_28_com_yatra_sathi_20261016_153915.png,Native UI Automator assertion,"# Android Native Assertion (Playwright Device Shell)
+# Target: android://com.yatra.sathi/.MainActivity
+# Verify screen: Divshadow
+assert device.shell(""dumpsys window | grep mCurrentFocus"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native input field 'Train No' at (540, 1100) -> Step 2: Focus and enter test query into 'Train No' input with 'QA_Test_Value' -> Step 3: Verify input receives focus and accepts user input.",Native input field 'Train No' receives focus and accepts user input,PENDING,-,-,reports\mobile_flow_28_com_yatra_sathi_20261016_153915.png,"Bounds: [39,411][1221,540]","# Android Native Input (Playwright Device Shell)
+# adb shell input tap 540 1100
+# adb shell input text ""QA_Test_Value""
+device.shell(""input tap 540 1100"")
+device.shell('input text ""QA_Test_Value""')
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Cbb' component at (540, 1100) -> Step 2: Tap 'Cbb' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Cbb' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_28_com_yatra_sathi_20261016_153915.png,"Class: android.widget.Button | Bounds: [1182,801][1248,867]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,Step 1: Open target app on device -> Step 2: Verify screen title and primary header '  Train Composition' is visible.,Screen '  Train Composition' loads successfully with all native components,PENDING,-,-,reports\mobile_flow_29_com_yatra_sathi_20261016_153921.png,Native UI Automator assertion,"# Android Native Assertion (Playwright Device Shell)
+# Target: android://com.yatra.sathi/.MainActivity
+# Verify screen:   Train Composition
+assert device.shell(""dumpsys window | grep mCurrentFocus"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native '  Train Composition #1' component at (540, 1100) -> Step 2: Tap '  Train Composition #1' native component -> Step 3: Verify component responds to user touch interaction.",Component '  Train Composition #1' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_29_com_yatra_sathi_20261016_153921.png,"Class: android.widget.FrameLayout | Bounds: [0,0][1260,2800]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Train Running Status' component at (540, 1100) -> Step 2: Tap 'Train Running Status' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Train Running Status' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_29_com_yatra_sathi_20261016_153921.png,"Class: android.widget.Button | Bounds: [108,1263][648,1374]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Train Schedule' component at (540, 1100) -> Step 2: Tap 'Train Schedule' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Train Schedule' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_29_com_yatra_sathi_20261016_153921.png,"Class: android.widget.Button | Bounds: [777,1263][1188,1374]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Train Running Status On MAP' component at (540, 1100) -> Step 2: Tap 'Train Running Status On MAP' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Train Running Status On MAP' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_29_com_yatra_sathi_20261016_153921.png,"Class: android.widget.Button | Bounds: [270,1395][990,1506]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,Step 1: Open target app on device -> Step 2: Verify screen title and primary header ' Reservation Chart Indian railway logo' is visible.,Screen ' Reservation Chart Indian railway logo' loads successfully with all native components,PENDING,-,-,reports\mobile_flow_30_com_yatra_sathi_20261016_153955.png,Native UI Automator assertion,"# Android Native Assertion (Playwright Device Shell)
+# Target: android://com.yatra.sathi/.MainActivity
+# Verify screen:  Reservation Chart Indian railway logo
+assert device.shell(""dumpsys window | grep mCurrentFocus"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native ' Reservation Chart Indian railway logo #1' component at (540, 1100) -> Step 2: Tap ' Reservation Chart Indian railway logo #1' native component -> Step 3: Verify component responds to user touch interaction.",Component ' Reservation Chart Indian railway logo #1' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_30_com_yatra_sathi_20261016_153955.png,"Class: android.widget.FrameLayout | Bounds: [0,0][1260,2800]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native input field '15-10-2026' at (540, 1100) -> Step 2: Focus and enter test query into '15-10-2026' input with 'QA_Test_Value' -> Step 3: Verify input receives focus and accepts user input.",Native input field '15-10-2026' receives focus and accepts user input,PENDING,-,-,reports\mobile_flow_30_com_yatra_sathi_20261016_153955.png,"Bounds: [21,549][1239,675]","# Android Native Input (Playwright Device Shell)
+# adb shell input tap 540 1100
+# adb shell input text ""QA_Test_Value""
+device.shell(""input tap 540 1100"")
+device.shell('input text ""QA_Test_Value""')
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'VALSAD - BL | 07:15 Hrs' component at (540, 1100) -> Step 2: Tap 'VALSAD - BL | 07:15 Hrs' native component -> Step 3: Verify component responds to user touch interaction.",Component 'VALSAD - BL | 07:15 Hrs' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_30_com_yatra_sathi_20261016_153955.png,"Class: android.widget.Spinner | Bounds: [24,732][1146,852]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Action Button' component at (540, 1100) -> Step 2: Tap 'Action Button' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Action Button' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_30_com_yatra_sathi_20261016_153955.png,"Class: android.widget.Button | Bounds: [1146,732][1236,852]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Show Reservation Chart' component at (540, 1100) -> Step 2: Tap 'Show Reservation Chart' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Show Reservation Chart' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_30_com_yatra_sathi_20261016_153955.png,"Class: android.widget.Button | Bounds: [327,921][933,1032]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Sathi Screen #31' component at (540, 1100) -> Step 2: Tap 'Sathi Screen #31' native component -> Step 3: Verify component responds to user touch interaction.",Page 'Sathi Screen #31' loads successfully with all structural elements and navigation containers visible.,,,,reports\mobile_flow_31_com_yatra_sathi_20261016_154004.png,,"# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,Step 1: Open target app on device -> Step 2: Verify screen title and primary header ' Train Composition Indian railway logo' is visible.,Screen ' Train Composition Indian railway logo' loads successfully with all native components,PENDING,-,-,reports\mobile_flow_32_com_yatra_sathi_20261016_154059.png,Native UI Automator assertion,"# Android Native Assertion (Playwright Device Shell)
+# Target: android://com.yatra.sathi/.MainActivity
+# Verify screen:  Train Composition Indian railway logo
+assert device.shell(""dumpsys window | grep mCurrentFocus"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native ' Train Composition Indian railway logo #1' component at (540, 1100) -> Step 2: Tap ' Train Composition Indian railway logo #1' native component -> Step 3: Verify component responds to user touch interaction.",Component ' Train Composition Indian railway logo #1' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_32_com_yatra_sathi_20261016_154059.png,"Class: android.widget.FrameLayout | Bounds: [0,0][1260,2800]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native '12929 - BRC INTERCITY #2' component at (540, 1100) -> Step 2: Tap '12929 - BRC INTERCITY #2' native component -> Step 3: Verify component responds to user touch interaction.",Component '12929 - BRC INTERCITY #2' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_32_com_yatra_sathi_20261016_154059.png,"Class: android.widget.Button | Bounds: [1134,255][1197,318]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Vacant Berth Status #2' component at (540, 1100) -> Step 2: Tap 'Vacant Berth Status #2' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Vacant Berth Status #2' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_32_com_yatra_sathi_20261016_154059.png,"Class: android.widget.Button | Bounds: [1134,816][1197,879]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,Step 1: Open target app on device -> Step 2: Verify screen title and primary header '  Reservation Chart' is visible.,Screen '  Reservation Chart' loads successfully with all native components,PENDING,-,-,reports\mobile_flow_33_com_yatra_sathi_20261016_154118.png,Native UI Automator assertion,"# Android Native Assertion (Playwright Device Shell)
+# Target: android://com.yatra.sathi/.MainActivity
+# Verify screen:   Reservation Chart
+assert device.shell(""dumpsys window | grep mCurrentFocus"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native '  Reservation Chart #1' component at (540, 1100) -> Step 2: Tap '  Reservation Chart #1' native component -> Step 3: Verify component responds to user touch interaction.",Component '  Reservation Chart #1' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_33_com_yatra_sathi_20261016_154118.png,"Class: android.widget.FrameLayout | Bounds: [0,0][1260,2800]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native input field '15-10-2026' at (540, 1100) -> Step 2: Focus and enter test query into '15-10-2026' input with 'QA_Test_Value' -> Step 3: Verify input receives focus and accepts user input.",Native input field '15-10-2026' receives focus and accepts user input,PENDING,-,-,reports\mobile_flow_33_com_yatra_sathi_20261016_154118.png,"Bounds: [21,105][1239,231]","# Android Native Input (Playwright Device Shell)
+# adb shell input tap 540 1100
+# adb shell input text ""QA_Test_Value""
+device.shell(""input tap 540 1100"")
+device.shell('input text ""QA_Test_Value""')
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'VALSAD - BL | 07:15 Hrs' component at (540, 1100) -> Step 2: Tap 'VALSAD - BL | 07:15 Hrs' native component -> Step 3: Verify component responds to user touch interaction.",Component 'VALSAD - BL | 07:15 Hrs' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_33_com_yatra_sathi_20261016_154118.png,"Class: android.widget.Spinner | Bounds: [24,288][1146,408]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Action Button' component at (540, 1100) -> Step 2: Tap 'Action Button' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Action Button' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_33_com_yatra_sathi_20261016_154118.png,"Class: android.widget.Button | Bounds: [1146,288][1236,408]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Show Reservation Chart' component at (540, 1100) -> Step 2: Tap 'Show Reservation Chart' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Show Reservation Chart' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_33_com_yatra_sathi_20261016_154118.png,"Class: android.widget.Button | Bounds: [327,477][933,588]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,Step 1: Open target app on device -> Step 2: Verify screen title and primary header 'Mys-Wrapper' is visible.,Screen 'Mys-Wrapper' loads successfully with all native components,PENDING,-,-,reports\mobile_flow_34_com_yatra_sathi_20261016_154146.png,Native UI Automator assertion,"# Android Native Assertion (Playwright Device Shell)
+# Target: android://com.yatra.sathi/.MainActivity
+# Verify screen: Mys-Wrapper
+assert device.shell(""dumpsys window | grep mCurrentFocus"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'WebView (630, 1400)' component at (630, 1400) -> Step 2: Tap 'WebView (630, 1400)' native component -> Step 3: Verify component responds to user touch interaction.","Component 'WebView (630, 1400)' responds to user touch interaction",PENDING,-,-,reports\mobile_flow_34_com_yatra_sathi_20261016_154146.png,"Class: android.webkit.WebView | Bounds: [0,0][1260,2800]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 630 1400
+device.shell(""input tap 630 1400"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/com.google.android.gms.ads.AdActivity,Step 1: Open target app on device -> Step 2: Verify screen title and primary header ' Train Composition Indian railway logo' is visible.,Screen ' Train Composition Indian railway logo' loads successfully with all native components,PENDING,-,-,reports\mobile_flow_35_com_yatra_sathi_20261016_154220.png,Native UI Automator assertion,"# Android Native Assertion (Playwright Device Shell)
+# Target: android://com.yatra.sathi/com.google.android.gms.ads.AdActivity
+# Verify screen:  Train Composition Indian railway logo
+assert device.shell(""dumpsys window | grep mCurrentFocus"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/com.google.android.gms.ads.AdActivity,"Step 1: Locate native ' Train Composition Indian railway logo #1' component at (540, 1100) -> Step 2: Tap ' Train Composition Indian railway logo #1' native component -> Step 3: Verify component responds to user touch interaction.",Component ' Train Composition Indian railway logo #1' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_35_com_yatra_sathi_20261016_154220.png,"Class: android.widget.FrameLayout | Bounds: [0,0][1260,2800]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/com.google.android.gms.ads.AdActivity,"Step 1: Locate native '12929 - BRC INTERCITY #2' component at (540, 1100) -> Step 2: Tap '12929 - BRC INTERCITY #2' native component -> Step 3: Verify component responds to user touch interaction.",Component '12929 - BRC INTERCITY #2' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_35_com_yatra_sathi_20261016_154220.png,"Class: android.widget.Button | Bounds: [1134,255][1197,318]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/com.google.android.gms.ads.AdActivity,"Step 1: Locate native 'Vacant Berth Status #2' component at (540, 1100) -> Step 2: Tap 'Vacant Berth Status #2' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Vacant Berth Status #2' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_35_com_yatra_sathi_20261016_154220.png,"Class: android.widget.Button | Bounds: [1134,816][1197,879]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,Step 1: Open target app on device -> Step 2: Verify screen title and primary header ' Reservation Chart Indian railway logo' is visible.,Screen ' Reservation Chart Indian railway logo' loads successfully with all native components,PENDING,-,-,reports\mobile_flow_36_com_yatra_sathi_20261016_154319.png,Native UI Automator assertion,"# Android Native Assertion (Playwright Device Shell)
+# Target: android://com.yatra.sathi/.MainActivity
+# Verify screen:  Reservation Chart Indian railway logo
+assert device.shell(""dumpsys window | grep mCurrentFocus"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native ' Reservation Chart Indian railway logo #1' component at (540, 1100) -> Step 2: Tap ' Reservation Chart Indian railway logo #1' native component -> Step 3: Verify component responds to user touch interaction.",Component ' Reservation Chart Indian railway logo #1' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_36_com_yatra_sathi_20261016_154319.png,"Class: android.widget.FrameLayout | Bounds: [0,0][1260,2800]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native input field '15-10-2026' at (540, 1100) -> Step 2: Focus and enter test query into '15-10-2026' input with 'QA_Test_Value' -> Step 3: Verify input receives focus and accepts user input.",Native input field '15-10-2026' receives focus and accepts user input,PENDING,-,-,reports\mobile_flow_36_com_yatra_sathi_20261016_154319.png,"Bounds: [21,279][1239,405]","# Android Native Input (Playwright Device Shell)
+# adb shell input tap 540 1100
+# adb shell input text ""QA_Test_Value""
+device.shell(""input tap 540 1100"")
+device.shell('input text ""QA_Test_Value""')
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'VALSAD - BL | 07:15 Hrs #1' component at (540, 1100) -> Step 2: Tap 'VALSAD - BL | 07:15 Hrs #1' native component -> Step 3: Verify component responds to user touch interaction.",Component 'VALSAD - BL | 07:15 Hrs #1' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_36_com_yatra_sathi_20261016_154319.png,"Class: android.widget.Spinner | Bounds: [24,462][1146,582]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Action Button' component at (540, 1100) -> Step 2: Tap 'Action Button' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Action Button' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_36_com_yatra_sathi_20261016_154319.png,"Class: android.widget.Button | Bounds: [1146,462][1236,582]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Show Reservation Chart' component at (540, 1100) -> Step 2: Tap 'Show Reservation Chart' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Show Reservation Chart' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_36_com_yatra_sathi_20261016_154319.png,"Class: android.widget.Button | Bounds: [327,651][933,762]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,Step 1: Open target app on device -> Step 2: Verify screen title and primary header 'App-Interstitial-Slot' is visible.,Screen 'App-Interstitial-Slot' loads successfully with all native components,PENDING,-,-,reports\mobile_flow_37_com_yatra_sathi_20261016_154729.png,Native UI Automator assertion,"# Android Native Assertion (Playwright Device Shell)
+# Target: android://com.yatra.sathi/.MainActivity
+# Verify screen: App-Interstitial-Slot
+assert device.shell(""dumpsys window | grep mCurrentFocus"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native '4.4 Ratings 10M Reviews' component at (540, 1100) -> Step 2: Tap '4.4 Ratings 10M Reviews' native component -> Step 3: Verify component responds to user touch interaction.",Component '4.4 Ratings 10M Reviews' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_37_com_yatra_sathi_20261016_154729.png,"Class: android.view.View | Bounds: [1080,2055][1212,2460]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/com.google.android.gms.ads.AdActivity,Step 1: Open target app on device -> Step 2: Verify screen title and primary header ' Train Composition Indian railway logo' is visible.,Screen ' Train Composition Indian railway logo' loads successfully with all native components,PENDING,-,-,reports\mobile_flow_38_com_yatra_sathi_20261016_154741.png,Native UI Automator assertion,"# Android Native Assertion (Playwright Device Shell)
+# Target: android://com.yatra.sathi/com.google.android.gms.ads.AdActivity
+# Verify screen:  Train Composition Indian railway logo
+assert device.shell(""dumpsys window | grep mCurrentFocus"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/com.google.android.gms.ads.AdActivity,"Step 1: Locate native ' Train Composition Indian railway logo #1' component at (540, 1100) -> Step 2: Tap ' Train Composition Indian railway logo #1' native component -> Step 3: Verify component responds to user touch interaction.",Component ' Train Composition Indian railway logo #1' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_38_com_yatra_sathi_20261016_154741.png,"Class: android.widget.FrameLayout | Bounds: [0,0][1260,2800]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/com.google.android.gms.ads.AdActivity,"Step 1: Locate native '12929 - BRC INTERCITY #2' component at (540, 1100) -> Step 2: Tap '12929 - BRC INTERCITY #2' native component -> Step 3: Verify component responds to user touch interaction.",Component '12929 - BRC INTERCITY #2' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_38_com_yatra_sathi_20261016_154741.png,"Class: android.widget.Button | Bounds: [1134,255][1197,318]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/com.google.android.gms.ads.AdActivity,"Step 1: Locate native 'Vacant Berth Status #2' component at (540, 1100) -> Step 2: Tap 'Vacant Berth Status #2' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Vacant Berth Status #2' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_38_com_yatra_sathi_20261016_154741.png,"Class: android.widget.Button | Bounds: [1134,816][1197,879]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,Step 1: Open target app on device -> Step 2: Verify screen title and primary header ' Reservation Chart Indian railway logo' is visible.,Screen ' Reservation Chart Indian railway logo' loads successfully with all native components,PENDING,-,-,reports\mobile_flow_39_com_yatra_sathi_20261016_154748.png,Native UI Automator assertion,"# Android Native Assertion (Playwright Device Shell)
+# Target: android://com.yatra.sathi/.MainActivity
+# Verify screen:  Reservation Chart Indian railway logo
+assert device.shell(""dumpsys window | grep mCurrentFocus"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native ' Reservation Chart Indian railway logo #1' component at (540, 1100) -> Step 2: Tap ' Reservation Chart Indian railway logo #1' native component -> Step 3: Verify component responds to user touch interaction.",Component ' Reservation Chart Indian railway logo #1' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_39_com_yatra_sathi_20261016_154748.png,"Class: android.widget.FrameLayout | Bounds: [0,0][1260,2800]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native input field '15-10-2026' at (540, 1100) -> Step 2: Focus and enter test query into '15-10-2026' input with 'QA_Test_Value' -> Step 3: Verify input receives focus and accepts user input.",Native input field '15-10-2026' receives focus and accepts user input,PENDING,-,-,reports\mobile_flow_39_com_yatra_sathi_20261016_154748.png,"Bounds: [21,549][1239,675]","# Android Native Input (Playwright Device Shell)
+# adb shell input tap 540 1100
+# adb shell input text ""QA_Test_Value""
+device.shell(""input tap 540 1100"")
+device.shell('input text ""QA_Test_Value""')
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'VALSAD - BL | 07:15 Hrs' component at (540, 1100) -> Step 2: Tap 'VALSAD - BL | 07:15 Hrs' native component -> Step 3: Verify component responds to user touch interaction.",Component 'VALSAD - BL | 07:15 Hrs' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_39_com_yatra_sathi_20261016_154748.png,"Class: android.widget.Spinner | Bounds: [24,732][1146,852]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Action Button' component at (540, 1100) -> Step 2: Tap 'Action Button' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Action Button' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_39_com_yatra_sathi_20261016_154748.png,"Class: android.widget.Button | Bounds: [1146,732][1236,852]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Show Reservation Chart' component at (540, 1100) -> Step 2: Tap 'Show Reservation Chart' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Show Reservation Chart' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_39_com_yatra_sathi_20261016_154748.png,"Class: android.widget.Button | Bounds: [327,921][933,1032]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,Step 1: Open target app on device -> Step 2: Verify screen title and primary header 'Mys-Wrapper' is visible.,Screen 'Mys-Wrapper' loads successfully with all native components,PENDING,-,-,reports\mobile_flow_40_com_yatra_sathi_20261016_154818.png,Native UI Automator assertion,"# Android Native Assertion (Playwright Device Shell)
+# Target: android://com.yatra.sathi/.MainActivity
+# Verify screen: Mys-Wrapper
+assert device.shell(""dumpsys window | grep mCurrentFocus"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'WebView (630, 1400)' component at (630, 1400) -> Step 2: Tap 'WebView (630, 1400)' native component -> Step 3: Verify component responds to user touch interaction.","Component 'WebView (630, 1400)' responds to user touch interaction",PENDING,-,-,reports\mobile_flow_40_com_yatra_sathi_20261016_154818.png,"Class: android.webkit.WebView | Bounds: [0,0][1260,2800]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 630 1400
+device.shell(""input tap 630 1400"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,Step 1: Open target app on device -> Step 2: Verify screen title and primary header ' Reservation Chart Indian railway logo' is visible.,Screen ' Reservation Chart Indian railway logo' loads successfully with all native components,PENDING,-,-,reports\mobile_flow_41_com_yatra_sathi_20261016_154929.png,Native UI Automator assertion,"# Android Native Assertion (Playwright Device Shell)
+# Target: android://com.yatra.sathi/.MainActivity
+# Verify screen:  Reservation Chart Indian railway logo
+assert device.shell(""dumpsys window | grep mCurrentFocus"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native ' Reservation Chart Indian railway logo #1' component at (540, 1100) -> Step 2: Tap ' Reservation Chart Indian railway logo #1' native component -> Step 3: Verify component responds to user touch interaction.",Component ' Reservation Chart Indian railway logo #1' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_41_com_yatra_sathi_20261016_154929.png,"Class: android.widget.FrameLayout | Bounds: [0,0][1260,2800]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native input field '15-10-2026' at (540, 1100) -> Step 2: Focus and enter test query into '15-10-2026' input with 'QA_Test_Value' -> Step 3: Verify input receives focus and accepts user input.",Native input field '15-10-2026' receives focus and accepts user input,PENDING,-,-,reports\mobile_flow_41_com_yatra_sathi_20261016_154929.png,"Bounds: [21,549][1239,675]","# Android Native Input (Playwright Device Shell)
+# adb shell input tap 540 1100
+# adb shell input text ""QA_Test_Value""
+device.shell(""input tap 540 1100"")
+device.shell('input text ""QA_Test_Value""')
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'VALSAD - BL | 07:15 Hrs' component at (540, 1100) -> Step 2: Tap 'VALSAD - BL | 07:15 Hrs' native component -> Step 3: Verify component responds to user touch interaction.",Component 'VALSAD - BL | 07:15 Hrs' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_41_com_yatra_sathi_20261016_154929.png,"Class: android.widget.Spinner | Bounds: [24,732][1146,852]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Action Button' component at (540, 1100) -> Step 2: Tap 'Action Button' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Action Button' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_41_com_yatra_sathi_20261016_154929.png,"Class: android.widget.Button | Bounds: [1146,732][1236,852]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Show Reservation Chart' component at (540, 1100) -> Step 2: Tap 'Show Reservation Chart' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Show Reservation Chart' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_41_com_yatra_sathi_20261016_154929.png,"Class: android.widget.Button | Bounds: [327,921][933,1032]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,Step 1: Open target app on device -> Step 2: Verify screen title and primary header ' Reservation Chart Indian railway logo' is visible.,Screen ' Reservation Chart Indian railway logo' loads successfully with all native components,PENDING,-,-,reports\mobile_flow_42_com_yatra_sathi_20261016_154943.png,Native UI Automator assertion,"# Android Native Assertion (Playwright Device Shell)
+# Target: android://com.yatra.sathi/.MainActivity
+# Verify screen:  Reservation Chart Indian railway logo
+assert device.shell(""dumpsys window | grep mCurrentFocus"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native ' Reservation Chart Indian railway logo #1' component at (540, 1100) -> Step 2: Tap ' Reservation Chart Indian railway logo #1' native component -> Step 3: Verify component responds to user touch interaction.",Component ' Reservation Chart Indian railway logo #1' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_42_com_yatra_sathi_20261016_154943.png,"Class: android.widget.FrameLayout | Bounds: [0,0][1260,2800]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native input field '15-10-2026' at (540, 1100) -> Step 2: Focus and enter test query into '15-10-2026' input with 'QA_Test_Value' -> Step 3: Verify input receives focus and accepts user input.",Native input field '15-10-2026' receives focus and accepts user input,PENDING,-,-,reports\mobile_flow_42_com_yatra_sathi_20261016_154943.png,"Bounds: [21,99][1239,225]","# Android Native Input (Playwright Device Shell)
+# adb shell input tap 540 1100
+# adb shell input text ""QA_Test_Value""
+device.shell(""input tap 540 1100"")
+device.shell('input text ""QA_Test_Value""')
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'VALSAD - BL | 07:15 Hrs' component at (540, 1100) -> Step 2: Tap 'VALSAD - BL | 07:15 Hrs' native component -> Step 3: Verify component responds to user touch interaction.",Component 'VALSAD - BL | 07:15 Hrs' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_42_com_yatra_sathi_20261016_154943.png,"Class: android.widget.Spinner | Bounds: [24,282][1146,402]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Action Button' component at (540, 1100) -> Step 2: Tap 'Action Button' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Action Button' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_42_com_yatra_sathi_20261016_154943.png,"Class: android.widget.Button | Bounds: [1146,282][1236,402]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Show Reservation Chart' component at (540, 1100) -> Step 2: Tap 'Show Reservation Chart' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Show Reservation Chart' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_42_com_yatra_sathi_20261016_154943.png,"Class: android.widget.Button | Bounds: [327,471][933,582]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,Step 1: Open target app on device -> Step 2: Verify screen title and primary header '  Reservation Chart' is visible.,Screen '  Reservation Chart' loads successfully with all native components,PENDING,-,-,reports\mobile_flow_43_com_yatra_sathi_20261016_155005.png,Native UI Automator assertion,"# Android Native Assertion (Playwright Device Shell)
+# Target: android://com.yatra.sathi/.MainActivity
+# Verify screen:   Reservation Chart
+assert device.shell(""dumpsys window | grep mCurrentFocus"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native '  Reservation Chart #1' component at (540, 1100) -> Step 2: Tap '  Reservation Chart #1' native component -> Step 3: Verify component responds to user touch interaction.",Component '  Reservation Chart #1' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_43_com_yatra_sathi_20261016_155005.png,"Class: android.widget.FrameLayout | Bounds: [0,0][1260,2800]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native input field '15-10-2026' at (540, 1100) -> Step 2: Focus and enter test query into '15-10-2026' input with 'QA_Test_Value' -> Step 3: Verify input receives focus and accepts user input.",Native input field '15-10-2026' receives focus and accepts user input,PENDING,-,-,reports\mobile_flow_43_com_yatra_sathi_20261016_155005.png,"Bounds: [21,105][1239,231]","# Android Native Input (Playwright Device Shell)
+# adb shell input tap 540 1100
+# adb shell input text ""QA_Test_Value""
+device.shell(""input tap 540 1100"")
+device.shell('input text ""QA_Test_Value""')
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'VALSAD - BL | 07:15 Hrs' component at (540, 1100) -> Step 2: Tap 'VALSAD - BL | 07:15 Hrs' native component -> Step 3: Verify component responds to user touch interaction.",Component 'VALSAD - BL | 07:15 Hrs' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_43_com_yatra_sathi_20261016_155005.png,"Class: android.widget.Spinner | Bounds: [24,288][1146,408]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Action Button' component at (540, 1100) -> Step 2: Tap 'Action Button' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Action Button' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_43_com_yatra_sathi_20261016_155005.png,"Class: android.widget.Button | Bounds: [1146,288][1236,408]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Show Reservation Chart' component at (540, 1100) -> Step 2: Tap 'Show Reservation Chart' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Show Reservation Chart' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_43_com_yatra_sathi_20261016_155005.png,"Class: android.widget.Button | Bounds: [327,477][933,588]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,Step 1: Open target app on device -> Step 2: Verify screen title and primary header ' Reservation Chart Indian railway logo' is visible.,Screen ' Reservation Chart Indian railway logo' loads successfully with all native components,PENDING,-,-,reports\mobile_flow_44_com_yatra_sathi_20261016_155014.png,Native UI Automator assertion,"# Android Native Assertion (Playwright Device Shell)
+# Target: android://com.yatra.sathi/.MainActivity
+# Verify screen:  Reservation Chart Indian railway logo
+assert device.shell(""dumpsys window | grep mCurrentFocus"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native ' Reservation Chart Indian railway logo #1' component at (540, 1100) -> Step 2: Tap ' Reservation Chart Indian railway logo #1' native component -> Step 3: Verify component responds to user touch interaction.",Component ' Reservation Chart Indian railway logo #1' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_44_com_yatra_sathi_20261016_155014.png,"Class: android.widget.FrameLayout | Bounds: [0,0][1260,2800]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native input field '15-10-2026' at (540, 1100) -> Step 2: Focus and enter test query into '15-10-2026' input with 'QA_Test_Value' -> Step 3: Verify input receives focus and accepts user input.",Native input field '15-10-2026' receives focus and accepts user input,PENDING,-,-,reports\mobile_flow_44_com_yatra_sathi_20261016_155014.png,"Bounds: [21,549][1239,675]","# Android Native Input (Playwright Device Shell)
+# adb shell input tap 540 1100
+# adb shell input text ""QA_Test_Value""
+device.shell(""input tap 540 1100"")
+device.shell('input text ""QA_Test_Value""')
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'VALSAD - BL | 07:15 Hrs' component at (540, 1100) -> Step 2: Tap 'VALSAD - BL | 07:15 Hrs' native component -> Step 3: Verify component responds to user touch interaction.",Component 'VALSAD - BL | 07:15 Hrs' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_44_com_yatra_sathi_20261016_155014.png,"Class: android.widget.Spinner | Bounds: [24,732][1146,852]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Action Button' component at (540, 1100) -> Step 2: Tap 'Action Button' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Action Button' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_44_com_yatra_sathi_20261016_155014.png,"Class: android.widget.Button | Bounds: [1146,732][1236,852]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Show Reservation Chart' component at (540, 1100) -> Step 2: Tap 'Show Reservation Chart' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Show Reservation Chart' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_44_com_yatra_sathi_20261016_155014.png,"Class: android.widget.Button | Bounds: [327,921][933,1032]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Sathi Screen #45' component at (540, 1100) -> Step 2: Tap 'Sathi Screen #45' native component -> Step 3: Verify component responds to user touch interaction.",Page 'Sathi Screen #45' loads successfully with all structural elements and navigation containers visible.,,,,reports\mobile_flow_45_com_yatra_sathi_20261016_155148.png,,"# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,Step 1: Open target app on device -> Step 2: Verify screen title and primary header 'Mys-Wrapper' is visible.,Screen 'Mys-Wrapper' loads successfully with all native components,PENDING,-,-,reports\mobile_flow_46_com_yatra_sathi_20261016_155159.png,Native UI Automator assertion,"# Android Native Assertion (Playwright Device Shell)
+# Target: android://com.yatra.sathi/.MainActivity
+# Verify screen: Mys-Wrapper
+assert device.shell(""dumpsys window | grep mCurrentFocus"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'WebView (630, 1400)' component at (630, 1400) -> Step 2: Tap 'WebView (630, 1400)' native component -> Step 3: Verify component responds to user touch interaction.","Component 'WebView (630, 1400)' responds to user touch interaction",PENDING,-,-,reports\mobile_flow_46_com_yatra_sathi_20261016_155159.png,"Class: android.webkit.WebView | Bounds: [0,0][1260,2800]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 630 1400
+device.shell(""input tap 630 1400"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,Step 1: Open target app on device -> Step 2: Verify screen title and primary header 'Train Between Stations' is visible.,Screen 'Train Between Stations' loads successfully with all native components,PENDING,-,-,reports\mobile_flow_47_com_yatra_sathi_20261016_155235.png,Native UI Automator assertion,"# Android Native Assertion (Playwright Device Shell)
+# Target: android://com.yatra.sathi/.MainActivity
+# Verify screen: Train Between Stations
+assert device.shell(""dumpsys window | grep mCurrentFocus"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native ' Train Between Stations Indian railway logo #1' component at (540, 1100) -> Step 2: Tap ' Train Between Stations Indian railway logo #1' native component -> Step 3: Verify component responds to user touch interaction.",Component ' Train Between Stations Indian railway logo #1' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_47_com_yatra_sathi_20261016_155235.png,"Class: android.widget.FrameLayout | Bounds: [0,0][1260,2800]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native input field '16-10-2026' at (540, 1100) -> Step 2: Focus and enter test query into '16-10-2026' input with 'QA_Test_Value' -> Step 3: Verify input receives focus and accepts user input.",Native input field '16-10-2026' receives focus and accepts user input,PENDING,-,-,reports\mobile_flow_47_com_yatra_sathi_20261016_155235.png,"Bounds: [21,615][624,741]","# Android Native Input (Playwright Device Shell)
+# adb shell input tap 540 1100
+# adb shell input text ""QA_Test_Value""
+device.shell(""input tap 540 1100"")
+device.shell('input text ""QA_Test_Value""')
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native toggle control 'Load Avl' at (540, 1100) -> Step 2: Toggle state for 'Load Avl' control -> Step 3: Verify control updates checked/toggle state.",Control 'Load Avl' updates checked/toggle state successfully,PENDING,-,-,reports\mobile_flow_47_com_yatra_sathi_20261016_155235.png,"Class: android.widget.CheckBox | Bounds: [633,636][636,642]","# Android Native Toggle (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'GN - GENERAL' component at (540, 1100) -> Step 2: Tap 'GN - GENERAL' native component -> Step 3: Verify component responds to user touch interaction.",Component 'GN - GENERAL' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_47_com_yatra_sathi_20261016_155235.png,"Class: android.widget.Spinner | Bounds: [24,798][1146,921]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Action Button #1' component at (540, 1100) -> Step 2: Tap 'Action Button #1' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Action Button #1' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_47_com_yatra_sathi_20261016_155235.png,"Class: android.widget.Button | Bounds: [1146,798][1236,921]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Dropdown Selector' component at (540, 1100) -> Step 2: Tap 'Dropdown Selector' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Dropdown Selector' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_47_com_yatra_sathi_20261016_155235.png,"Class: android.widget.Spinner | Bounds: [24,981][1146,1101]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Action Button #2' component at (540, 1100) -> Step 2: Tap 'Action Button #2' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Action Button #2' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_47_com_yatra_sathi_20261016_155235.png,"Class: android.widget.Button | Bounds: [1146,981][1236,1101]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Find Trains' component at (540, 1100) -> Step 2: Tap 'Find Trains' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Find Trains' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_47_com_yatra_sathi_20261016_155235.png,"Class: android.widget.Button | Bounds: [462,1170][798,1281]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Sathi Screen #48' component at (540, 1100) -> Step 2: Tap 'Sathi Screen #48' native component -> Step 3: Verify component responds to user touch interaction.",Page 'Sathi Screen #48' loads successfully with all structural elements and navigation containers visible.,,,,reports\mobile_flow_48_com_yatra_sathi_20261016_155241.png,,"# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,Step 1: Open target app on device -> Step 2: Verify screen title and primary header 'Train Between Stations' is visible.,Screen 'Train Between Stations' loads successfully with all native components,PENDING,-,-,reports\mobile_flow_49_com_yatra_sathi_20261016_155259.png,Native UI Automator assertion,"# Android Native Assertion (Playwright Device Shell)
+# Target: android://com.yatra.sathi/.MainActivity
+# Verify screen: Train Between Stations
+assert device.shell(""dumpsys window | grep mCurrentFocus"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native ' Train Between Stations Indian railway logo #1' component at (540, 1100) -> Step 2: Tap ' Train Between Stations Indian railway logo #1' native component -> Step 3: Verify component responds to user touch interaction.",Component ' Train Between Stations Indian railway logo #1' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_49_com_yatra_sathi_20261016_155259.png,"Class: android.widget.FrameLayout | Bounds: [0,0][1260,2800]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native input field '16-10-2026' at (540, 1100) -> Step 2: Focus and enter test query into '16-10-2026' input with 'QA_Test_Value' -> Step 3: Verify input receives focus and accepts user input.",Native input field '16-10-2026' receives focus and accepts user input,PENDING,-,-,reports\mobile_flow_49_com_yatra_sathi_20261016_155259.png,"Bounds: [21,615][624,741]","# Android Native Input (Playwright Device Shell)
+# adb shell input tap 540 1100
+# adb shell input text ""QA_Test_Value""
+device.shell(""input tap 540 1100"")
+device.shell('input text ""QA_Test_Value""')
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native toggle control 'Load Avl' at (540, 1100) -> Step 2: Toggle state for 'Load Avl' control -> Step 3: Verify control updates checked/toggle state.",Control 'Load Avl' updates checked/toggle state successfully,PENDING,-,-,reports\mobile_flow_49_com_yatra_sathi_20261016_155259.png,"Class: android.widget.CheckBox | Bounds: [633,636][636,642]","# Android Native Toggle (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'GN - GENERAL' component at (540, 1100) -> Step 2: Tap 'GN - GENERAL' native component -> Step 3: Verify component responds to user touch interaction.",Component 'GN - GENERAL' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_49_com_yatra_sathi_20261016_155259.png,"Class: android.widget.Spinner | Bounds: [24,798][1146,921]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Action Button #1' component at (540, 1100) -> Step 2: Tap 'Action Button #1' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Action Button #1' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_49_com_yatra_sathi_20261016_155259.png,"Class: android.widget.Button | Bounds: [1146,798][1236,921]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Dropdown Selector' component at (540, 1100) -> Step 2: Tap 'Dropdown Selector' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Dropdown Selector' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_49_com_yatra_sathi_20261016_155259.png,"Class: android.widget.Spinner | Bounds: [24,981][1146,1101]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Action Button #2' component at (540, 1100) -> Step 2: Tap 'Action Button #2' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Action Button #2' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_49_com_yatra_sathi_20261016_155259.png,"Class: android.widget.Button | Bounds: [1146,981][1236,1101]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+True,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Find Trains' component at (540, 1100) -> Step 2: Tap 'Find Trains' native component -> Step 3: Verify component responds to user touch interaction.",Component 'Find Trains' responds to user touch interaction,PENDING,-,-,reports\mobile_flow_49_com_yatra_sathi_20261016_155259.png,"Class: android.widget.Button | Bounds: [462,1170][798,1281]","# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"
+,Mobile (Native),⚙️ Rule Engine,android://com.yatra.sathi/.MainActivity,"Step 1: Locate native 'Sathi Screen #50' component at (540, 1100) -> Step 2: Tap 'Sathi Screen #50' native component -> Step 3: Verify component responds to user touch interaction.",Page 'Sathi Screen #50' loads successfully with all structural elements and navigation containers visible.,,,,reports\mobile_flow_50_com_yatra_sathi_20261016_155312.png,,"# Android Native Tap (Playwright Device Shell)
+# adb shell input tap 540 1100
+device.shell(""input tap 540 1100"")
+"

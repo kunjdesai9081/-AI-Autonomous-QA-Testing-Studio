@@ -1,0 +1,17 @@
+Run,Type,Generated_By,Target,Test_Step_Description,Expected_Result,Status,Duration,Actual_Result,Screenshot,Execution_Notes,Playwright_Code
+True,Mobile (Native),⚙️ Rule Engine (Native UI),android://com.HeylinkAudio.boult,Verify screen title and primary header 'Bar Root' is visible,Screen 'Bar Root' loads successfully with all native components,PENDING,-,-,reports/active_phone_screen.png,Native UI Automator assertion,"# Android Native Assertion
+# Target: android://com.HeylinkAudio.boult
+# Verify screen: Bar Root
+"
+True,Mobile (Native),⚙️ Rule Engine (Native UI),android://com.HeylinkAudio.boult,Tap 'Topbar Right' native component,Component 'Topbar Right' responds to user touch interaction,PENDING,-,-,reports/active_phone_screen.png,"Class: android.widget.TextView | Bounds: [1131,177][1215,261]","# Android Native Tap
+adb shell input tap 1173 219
+"
+True,Mobile (Native),⚙️ Rule Engine (Native UI),android://com.HeylinkAudio.boult,Tap 'Cl Item History Device Main' native component,Component 'Cl Item History Device Main' responds to user touch interaction,PENDING,-,-,reports/active_phone_screen.png,"Class: android.view.ViewGroup | Bounds: [45,363][1215,693]","# Android Native Tap
+adb shell input tap 630 528
+"
+True,Mobile (Native),⚙️ Rule Engine (Native UI),android://com.HeylinkAudio.boult,Tap 'Item History Device Img' native component,Component 'Item History Device Img' responds to user touch interaction,PENDING,-,-,reports/active_phone_screen.png,"Class: android.widget.ImageView | Bounds: [90,393][360,663]","# Android Native Tap
+adb shell input tap 225 528
+"
+True,Mobile (Native),⚙️ Rule Engine (Native UI),android://com.HeylinkAudio.boult,Tap 'Reconnect' native component,Component 'Reconnect' responds to user touch interaction,PENDING,-,-,reports/active_phone_screen.png,"Class: android.widget.TextView | Bounds: [909,575][1170,663]","# Android Native Tap
+adb shell input tap 1039 619
+"
