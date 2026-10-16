@@ -1,6 +1,6 @@
-# 🚀 Leadcrm_Deep_Suite - E2E Test Suite
+# 🚀 Leadcrm_Deep_Suite 
 
-This project contains autonomous end-to-end tests built for **[tester-army/e2e](https://github.com/tester-army/e2e)** and Playwright.
+This project contains autonomous end-to-end tests built  with Playwright.
 
 ## 📦 Quick Start
 
