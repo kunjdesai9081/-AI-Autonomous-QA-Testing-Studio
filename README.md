@@ -1,1 +1,1 @@
-# -AI-Autonomous-QA-Testing-Studio
+AI-Autonomous-QA-Testing-Studio
