@@ -12,7 +12,7 @@ export default defineConfig({
   workers: process.env.CI ? 4 : '75%',
   retries: 1,
   use: {
-    baseURL: "https://shah-consultancy.netlify.app",
+    baseURL: "https://example.com",
     headless: true,
     viewport: { width: 1280, height: 720 },
     actionTimeout: 5000,

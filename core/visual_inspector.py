@@ -1,4 +1,6 @@
+import concurrent.futures
 import json
+import os
 from typing import Dict, Any, List, Optional
 
 
@@ -113,7 +115,6 @@ class VisualInspector:
             dom_report = self.audit_dom_layout(page)
 
         ai_analysis = ""
-        import os
         has_vision_key = bool(
             self.ai_client
             and os.getenv("FORCE_G4F") != "true"
@@ -136,7 +137,6 @@ class VisualInspector:
             Provide a concise, 2-paragraph verdict with specific component references.
             """
             try:
-                import concurrent.futures
                 pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
                 try:
                     fut = pool.submit(self.ai_client.analyze_image, image_base64, prompt)

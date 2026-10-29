@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import os
 import re
 import warnings
@@ -149,10 +150,13 @@ class AIClient:
             except Exception:
                 self.openrouter_api_key = None
         if self.gemini_api_key:
-            try:
-                genai.configure(api_key=self.gemini_api_key)
-            except Exception:
+            if not self.gemini_api_key.startswith("AIzaSy"):
                 self.gemini_api_key = None
+            else:
+                try:
+                    genai.configure(api_key=self.gemini_api_key)
+                except Exception:
+                    self.gemini_api_key = None
 
     def _get_valid_gemini_models(self):
         """Discovers valid Gemini models and excludes audio/TTS/embed and deprecated endpoints."""
@@ -236,7 +240,11 @@ class AIClient:
                         if content:
                             return content
                     except Exception as inner_e:
+                        err_str = str(inner_e)
                         print(f"Gemini {gem_model} failed: {inner_e}")
+                        if any(k in err_str.lower() for k in ["api key not valid", "api_key_invalid", "unauthenticated", "invalid api key"]):
+                            self.gemini_api_key = None
+                            break
                         continue
         except Exception as e:
             err_msg = str(e)
@@ -454,7 +462,7 @@ class AIClient:
         return self.analyze_image(base64_image, prompt, max_tokens=max_tokens)
 
     def analyze_image_for_test_generation(
-        self, base64_image: str, target_url: str = "https://example.com", user_instructions: str = ""
+        self, base64_image: str, target_url: str = "", user_instructions: str = ""
     ) -> str:
         """Analyzes a UI screenshot/mockup and returns a raw JSON array of 15 to 25 UI test cases."""
         prompt = f"""

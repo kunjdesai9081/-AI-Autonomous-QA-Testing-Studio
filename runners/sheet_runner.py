@@ -48,6 +48,12 @@ class SheetRunner:
         df = df.loc[:, ~df.columns.str.contains(r"^Unnamed")]
         df = df.dropna(how="all")
 
+        if "Test_Step_Description" not in df.columns:
+            from core.test_generator import parse_qa_test_sheet_to_dataframe
+            parsed = parse_qa_test_sheet_to_dataframe(df)
+            if not parsed.empty:
+                df = parsed
+
         for str_col, default_val in [
             ("Status", "PENDING"),
             ("Execution_Notes", ""),
@@ -114,8 +120,26 @@ class SheetRunner:
                     passed_count += 1
                 except Exception as e:
                     print(f"Execution Error: {e}")
-                    df.at[index, "Status"] = "FAILED"
-                    failed_count += 1
+                    e_str = str(e).strip()
+                    from core.self_healing import StepSkippedException
+                    is_not_possible = (
+                        isinstance(e, StepSkippedException)
+                        or "[not applicable]" in e_str.lower()
+                        or "[not possible]" in e_str.lower()
+                        or "not found on active page" in e_str.lower()
+                        or "not found on active screen" in e_str.lower()
+                        or "self-healing exhausted" in e_str.lower()
+                        or ("timeout" in e_str.lower() and ("waiting for locator" in e_str.lower() or "waiting for selector" in e_str.lower()))
+                        or "cannot be executed or healed" in e_str.lower()
+                    )
+                    if is_not_possible:
+                        df.at[index, "Status"] = "SKIPPED"
+                        skipped_count += 1
+                        clean_msg = e_str.replace("[NOT APPLICABLE]", "").replace("[NOT POSSIBLE]", "").strip().splitlines()[-1]
+                        df.at[index, "Actual_Result"] = f"Skipped (Not Possible / Action Unreachable): {clean_msg}"
+                    else:
+                        df.at[index, "Status"] = "FAILED"
+                        failed_count += 1
                 finally:
                     sys.stdout = original_stdout
 

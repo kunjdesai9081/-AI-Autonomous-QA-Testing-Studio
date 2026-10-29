@@ -1,20 +1,25 @@
 {
-  "force_g4f": true,
+  "force_g4f": false,
   "show_browser": true,
   "enable_visual": true,
+  "show_adapter_cols": true,
   "test_variables": [
     {
-      "Key": "Email",
-      "Value": "test_user@example.com"
+      "Key": "Phone",
+      "Value": "9876543111"
     },
     {
       "Key": "Password",
-      "Value": "password123"
+      "Value": "Palm@123"
+    },
+    {
+      "Key": "OTP",
+      "Value": "1234"
     }
   ],
   "clickup_api_token": "",
   "clickup_list_id": "",
-  "target_platform": "android_cdp",
+  "target_platform": "desktop_chrome",
   "platform_orientation": "portrait",
   "network_preset": "direct",
   "cdp_url": ""

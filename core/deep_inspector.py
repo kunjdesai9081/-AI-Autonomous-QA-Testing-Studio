@@ -2003,6 +2003,8 @@ Generate at least 15-25 high-value test cases covering ALL 7 testing pillars (Po
                     exp = str(tc.get("Expected_Result", "Action executes cleanly")).strip()
                     t_url = str(tc.get("Target", target_url)).strip() or target_url
                     t_type = "API" if str(tc.get("Type", "")).lower() == "api" or "http" in t_url and ("/api/" in t_url or "api." in t_url) else "Web"
+                    if t_type == "Web":
+                        t_url = target_url
                     code = str(tc.get("Playwright_Code", "")).strip()
                     if not code or len(code) < 10 or code == "pass":
                         code = _synthesize_default_playwright_code(desc, exp, t_url, t_type)
@@ -2474,8 +2476,11 @@ assert is_protected, f'Target {target_url} failed security guard check.'""",
                 continue
             method = api.get("method", "GET")
             parsed = urlparse(api_url)
+            target_host = urlparse(target_url).netloc
+            if parsed.netloc and target_host and parsed.netloc != target_host and not any(loc in parsed.netloc for loc in ["localhost", "127.0.0.1"]):
+                continue
             path_key = f"{method}:{parsed.path}"
-            if path_key in seen_api_paths or any(ext in parsed.path for ext in [".js", ".css", ".png", ".svg", ".json"]):
+            if path_key in seen_api_paths or any(ext in parsed.path for ext in [".js", ".css", ".png", ".svg", ".json", ".woff", ".woff2", ".ttf"]):
                 continue
             seen_api_paths.add(path_key)
             if not any(api_url in str(c.get("Target", "")) or api_url in str(c.get("Playwright_Code", "")) for c in cases):

@@ -45,21 +45,47 @@ class TestCoreModules(unittest.TestCase):
         self.assertIn("modal-backdrop", healed_overlay)
 
     def test_e2e_exporter(self):
+        complex_py_pw = (
+            "try:\n"
+            "    page.goto('http://example.com')\n"
+            "    with page.expect_popup() as popup_info:\n"
+            "        page.locator('button').click()\n"
+            "    new_page = popup_info.value\n"
+            "    expect(new_page).toHaveURL(re.compile('test'))\n"
+            "    checkbox = page.locator('input[type=\"checkbox\"]')\n"
+            "    checkbox.check()\n"
+            "    expect(checkbox).to_be_checked()\n"
+            "    expect(page.locator('.hidden-elem')).not_to_be_visible()\n"
+            "except Exception:\n"
+            "    pass\n"
+        )
         tests = [{
             "Type": "Web",
-            "Target": "http://admin.leadcrm.uat.s3-website.ap-south-1.amazonaws.com",
+            "Target": "https://example.com",
             "Test_Step_Description": "Verify dashboard",
             "Expected_Result": "Dashboard is visible",
-            "Playwright_Code": "expect(page.locator('body')).to_be_visible()"
+            "Playwright_Code": complex_py_pw
         }]
         exporter = TesterArmyExporter()
         ts_code = exporter.generate_typescript_suite(tests)
         self.assertIn("import { test, expect } from './fixtures';", ts_code)
         self.assertIn("test(", ts_code)
+        self.assertIn("try {", ts_code)
+        self.assertIn("const popup_info_promise = page.waitForEvent('popup');", ts_code)
+        self.assertIn("const new_page = await popup_info_promise;", ts_code)
+        self.assertIn("new RegExp('test')", ts_code)
+        self.assertIn("await checkbox.check();", ts_code)
+        self.assertIn(".toBeChecked();", ts_code)
+        self.assertIn(".not.toBeVisible();", ts_code)
+        self.assertIn("} catch (e) {", ts_code)
         
         all_files = exporter.export_test_files(tests)
         self.assertIn("@playwright/test", all_files["package.json"])
         self.assertIn("@tester-army/e2e", all_files["e2e.config.ts"])
+
+        # Validate in-memory zip export works cleanly without UnboundLocalError
+        zip_bytes = exporter.export_zip_bytes(tests)
+        self.assertGreater(len(zip_bytes), 100)
 
     def test_pyarrow_serialization_robustness(self):
         df = pd.DataFrame({
@@ -389,6 +415,77 @@ class TestCoreModules(unittest.TestCase):
         success = delete_selected_test_cases(df_no_run)
         self.assertTrue(success)
         self.assertIsNone(st.session_state.get("test_cases_df"))
+
+    def test_parse_qa_test_sheet_multi_table_extraction(self):
+        from core.test_generator import parse_qa_test_sheet_to_dataframe
+        csv_sample = """
+,,,,,
+,Field,Value,,,
+,Environment,UAT,,,
+,Executed By,Prakash Tiwari,,,
+,,,,,
+Screen / Function,User Action on Dev Link,Expected Outcome,Use Case ID,Test Case ID,Evidence(failed case)
+Super Admin Login Screen,Open the Super Admin login URL without an authenticated session,Login screen opens with branding,UC-SA-LOGIN-01,TC-SA-LOGIN-001,
+Existing Authenticated Session,Login successfully and open login URL again,System follows configured behavior,UC-SA-LOGIN-01,TC-SA-LOGIN-013,
+,,,,,
+,Metric,Count,,,,,,,,,,,,,,
+,Test Cases Executed,285,,,,,,,,,,,,,,
+,,,,,
+Test Case ID,Use Case ID,Date,Module,Test Case Title,Scenario Type,Classification,Test Case Description,Test Steps,Test Data,Expected Result,Actual Result,Priority,Result,Comments,Dev Result,Column 1
+TC-SA-LOGIN-003,UC-SA-LOGIN-02,13-09-2026,Super Admin Login,Verify Email Field,Positive,UI,Verify Email Address field is available,1. Open login page 2. Locate Email field,N/A,Email field is visible and usable,Email field is visible and usable,High,Pass,,Pass,
+"""
+        parsed_df = parse_qa_test_sheet_to_dataframe(csv_sample, default_target="http://192.168.1.33:5177/login")
+        self.assertEqual(len(parsed_df), 3)
+        self.assertIn("Playwright_Code", parsed_df.columns)
+        self.assertIn("Execution_Notes", parsed_df.columns)
+        self.assertEqual(parsed_df.iloc[0]["Target"], "http://192.168.1.33:5177/login")
+        self.assertIn("TC-SA-LOGIN-001", parsed_df.iloc[0]["Execution_Notes"])
+        self.assertIn("TC-SA-LOGIN-003", parsed_df.iloc[2]["Execution_Notes"])
+        # Verify Playwright code is synthesized
+        self.assertTrue(len(parsed_df.iloc[0]["Playwright_Code"]) > 10)
+        self.assertTrue(len(parsed_df.iloc[2]["Playwright_Code"]) > 10)
+
+    def test_normalize_test_dataframe_with_qa_export_format(self):
+        raw_df = pd.DataFrame([
+            {"Screen / Function": "Login View", "User Action on Dev Link": "Enter a valid Email and Password", "Expected Outcome": "Dashboard opens", "Test Case ID": "TC-001"},
+            {"Screen / Function": "Login View", "User Action on Dev Link": "Click Forgot Password", "Expected Outcome": "Forgot Password opens", "Test Case ID": "TC-002"},
+        ])
+        norm_df = normalize_test_dataframe(raw_df, default_target="http://192.168.1.33:5177/login")
+        self.assertEqual(len(norm_df), 2)
+        self.assertEqual(norm_df.iloc[0]["Target"], "http://192.168.1.33:5177/login")
+        self.assertEqual(norm_df.iloc[0]["Test_Step_Description"], "Enter a valid Email and Password")
+        self.assertEqual(norm_df.iloc[0]["Expected_Result"], "Dashboard opens")
+        self.assertIn("Playwright_Code", norm_df.columns)
+        self.assertTrue(len(norm_df.iloc[0]["Playwright_Code"]) > 0)
+
+    def test_ai_regenerate_and_convert_suite_with_raw_notes(self):
+        from core.test_generator import TestGenerator
+        tg = TestGenerator()
+        raw_notes = (
+            "1. Open https://myapp.com/login and verify title -> Expected: Title contains Login\n"
+            "2. Fill username and password -> Expected: Inputs accept text\n"
+            "3. Click submit button -> Expected: User redirected to dashboard\n"
+        )
+        res_df = tg.ai_regenerate_and_convert_suite(raw_notes, default_target="https://myapp.com/login")
+        self.assertGreaterEqual(len(res_df), 3)
+        self.assertListEqual(list(res_df.columns), [
+            "Run", "Type", "Target", "Test_Step_Description", "Expected_Result",
+            "Status", "Duration", "Actual_Result", "Screenshot", "Execution_Notes", "Playwright_Code"
+        ])
+        self.assertTrue(all(res_df["Run"]))
+        self.assertTrue(all(len(c) > 0 for c in res_df["Playwright_Code"]))
+
+    def test_ai_regenerate_and_convert_suite_with_dataframe(self):
+        from core.test_generator import TestGenerator
+        tg = TestGenerator()
+        df = pd.DataFrame([
+            {"User Scenario": "Test Checkout", "Action Steps": "Add item to cart and click checkout", "Success Metric": "Order confirmation modal appears"},
+        ])
+        res_df = tg.ai_regenerate_and_convert_suite(df, default_target="https://shop.example.com")
+        self.assertGreaterEqual(len(res_df), 1)
+        self.assertIn("Playwright_Code", res_df.columns)
+        self.assertEqual(res_df.iloc[0]["Target"], "https://shop.example.com")
+        self.assertTrue(len(res_df.iloc[0]["Playwright_Code"]) > 0)
 
 
 if __name__ == "__main__":

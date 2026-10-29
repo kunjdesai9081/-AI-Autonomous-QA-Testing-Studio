@@ -223,34 +223,105 @@ export { expect };
             if not py_code or len(py_code.strip()) < 5:
                 return ""
             out = []
+            popup_var = None
             for raw_l in py_code.splitlines():
                 l = raw_l.strip()
                 if not l or l.startswith("#"):
                     continue
+
+                # Python booleans & logic
                 l = re.sub(r'\bTrue\b', 'true', l)
                 l = re.sub(r'\bFalse\b', 'false', l)
                 l = re.sub(r'\bNone\b', 'null', l)
+                l = re.sub(r'\bor\b', '||', l)
+                l = re.sub(r'\band\b', '&&', l)
+
+                # Python try / except / pass
+                if l == "try:":
+                    out.append("  try {")
+                    continue
+                if l.startswith("except") and l.endswith(":"):
+                    out.append("  } catch (e) {")
+                    continue
+                if l == "pass":
+                    continue
+
+                # Python with page.expect_popup() as <var>:
+                popup_match = re.match(r'with\s+page\.expect_popup\(\)\s+as\s+([a-zA-Z0-9_]+):', l)
+                if popup_match:
+                    popup_var = popup_match.group(1)
+                    out.append(f"  const {popup_var}_promise = page.waitForEvent('popup');")
+                    continue
+
+                # <target_var> = <popup_var>.value
+                if popup_var:
+                    val_match = re.match(r'([a-zA-Z0-9_]+)\s*=\s*' + re.escape(popup_var) + r'\.value', l)
+                    if val_match:
+                        out.append(f"  const {val_match.group(1)} = await {popup_var}_promise;")
+                        continue
+
+                # Python loops: for i in range(count):
+                loop_match = re.match(r'for\s+([a-zA-Z0-9_]+)\s+in\s+range\((.*?)\):', l)
+                if loop_match:
+                    out.append(f"  for (let {loop_match.group(1)} = 0; {loop_match.group(1)} < {loop_match.group(2)}; {loop_match.group(1)}++) {{")
+                    continue
+
+                # Python asserts
+                if re.match(r'assert\s+(.*?)\s+is\s+not\s+(None|null)', l):
+                    m = re.match(r'assert\s+(.*?)\s+is\s+not\s+(None|null)', l)
+                    l = f"expect({m.group(1)}).not.toBeNull()"
+                elif l.startswith("assert "):
+                    cond = l[7:].strip()
+                    if ", " in cond:
+                        cond = cond.split(", ")[0]
+                    l = f"expect({cond}).toBeTruthy()"
+
+                # Regex compile
+                l = re.sub(r're\.compile\((.*?)\)', r'new RegExp(\1)', l)
+
                 # Arguments mapping
                 l = re.sub(r'page\.goto\((.*?),\s*(?:wait_until|waitUntil)[:=]\s*([^)]+)\)', r'page.goto(\1, { waitUntil: \2 })', l)
                 l = re.sub(r'\.filter\(\s*(?:has_text|hasText)[:=]\s*([^)]+)\)', r'.filter({ hasText: \1 })', l)
                 l = re.sub(r'\.click\(\s*(?:force)[:=]\s*([^)]+)\)', r'.click({ force: \1 })', l)
+                l = re.sub(r'\.scroll_into_view_if_needed\(\s*timeout[:=]\s*(\d+)\s*\)', r'.scrollIntoViewIfNeeded({ timeout: \1 })', l)
+                l = l.replace(".scroll_into_view_if_needed()", ".scrollIntoViewIfNeeded()")
+
+                # Playwright method camelCasing
                 l = l.replace(".to_be_visible()", ".toBeVisible()").replace(".to_be_enabled()", ".toBeEnabled()")
+                l = l.replace(".not_to_be_visible()", ".not.toBeVisible()").replace(".not_to_be_attached()", ".not.toBeAttached()")
+                l = l.replace(".to_be_checked()", ".toBeChecked()").replace(".not_to_be_checked()", ".not.toBeChecked()")
                 l = l.replace(".to_have_text(", ".toHaveText(").replace(".to_contain_text(", ".toContainText(")
+                l = l.replace(".not_to_have_text(", ".not.toHaveText(").replace(".to_have_value(", ".toHaveValue(")
+                l = l.replace(".to_have_url(", ".toHaveURL(")
                 l = l.replace(".wait_for_timeout(", ".waitForTimeout(").replace(".wait_for_load_state(", ".waitForLoadState(")
                 l = l.replace(".wait_for_selector(", ".waitForSelector(").replace(".select_option(", ".selectOption(")
+                l = l.replace(".inner_text()", ".innerText()").replace(".get_attribute(", ".getAttribute(")
+
+                # Remove double first calls
+                l = l.replace(".first()()", ".first()")
                 l = re.sub(r'\.first(\b|(?!\())', '.first()', l)
 
+                # Variable declarations
+                if re.match(r'^[a-zA-Z0-9_]+\s*=\s*(?:page\.locator|page\.get_by_|buttons\.nth)\(', l):
+                    l = "const " + l
+                elif re.match(r'^[a-zA-Z0-9_]+\s*=\s*page\.evaluate\(', l):
+                    l = "const " + l.replace("page.evaluate(", "await page.evaluate(")
+                elif re.match(r'^[a-zA-Z0-9_]+\s*=\s*[a-zA-Z0-9_]+\.count\(', l):
+                    l = "const " + re.sub(r'=\s*([a-zA-Z0-9_]+)\.count\(', r'= await \1.count(', l)
+                elif re.match(r'^[a-zA-Z0-9_]+\s*=\s*', l) and not l.startswith("const ") and not l.startswith("let "):
+                    l = "const " + l
+
+                # Await calls
                 if l.startswith("expect(") and not l.startswith("await expect("):
                     l = "await " + l
-                elif re.match(r'^page\.(goto|click|fill|press|selectOption|waitForTimeout|waitForLoadState|waitForSelector)\(', l):
+                elif re.match(r'^page\.(goto|click|fill|press|selectOption|waitForTimeout|waitForLoadState|waitForSelector|evaluate)\(', l):
                     if not l.startswith("await "):
                         l = "await " + l
-                elif re.search(r'\.(click|fill|press|selectOption)\(', l) and not l.startswith("await "):
-                    if not l.startswith("if ") and "=" not in l:
+                elif re.search(r'\.(click|fill|press|selectOption|check)\(', l) and not l.startswith("await "):
+                    if not l.startswith("if ") and not l.startswith("const ") and not l.startswith("let ") and "=" not in l:
                         l = "await " + l
-                elif re.match(r'^[a-zA-Z0-9_]+\s*=\s*page\.locator\(', l):
-                    l = "const " + l
-                elif l.startswith("if ") and l.endswith(":"):
+
+                if l.startswith("if ") and l.endswith(":"):
                     cond = l[3:-1].strip()
                     l = f"// Step condition: {cond}"
 
@@ -377,6 +448,7 @@ npm run test:ui
             for root, _, files in os.walk(out_path):
                 for file in files:
                     full_path = os.path.join(root, file)
+                    rel_path = os.path.relpath(full_path, out_path)
                     zip_file.write(full_path, arcname=rel_path)
 
         zip_buffer.seek(0)

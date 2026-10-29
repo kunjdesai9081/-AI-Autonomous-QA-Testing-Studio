@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import requests
 
 
@@ -129,7 +130,7 @@ class ClickUpClient:
             "description": description,
             "status": "to do",
             "priority": priority,
-            "tags": ["qa-automation", "bug", "leadcrm-test"],
+            "tags": ["qa-automation", "bug", "e2e-test"],
             "notify_all": False,
         }
 

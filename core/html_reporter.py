@@ -48,9 +48,42 @@ def generate_html_report(df: pd.DataFrame, title: str = "Test Execution Quality 
     unique_targets = [t for t in df["Target"].dropna().unique().tolist() if str(t).strip() and str(t).strip().lower() not in ["none", "nan", "-"]] if "Target" in df.columns else []
     primary_target = unique_targets[0] if unique_targets else "N/A"
 
+    # Determine unique sheets
+    sheet_counts = {}
+    if "Sheet_Name" in df.columns:
+        for s in df["Sheet_Name"].dropna():
+            s_clean = str(s).strip()
+            if s_clean and s_clean.lower() not in ["none", "nan", ""]:
+                sheet_counts[s_clean] = sheet_counts.get(s_clean, 0) + 1
+    has_multiple_sheets = len(sheet_counts) > 1
+
+    sheet_tabs_html = ""
+    if has_multiple_sheets:
+        pills = []
+        for s_name, s_count in sheet_counts.items():
+            pills.append(f"""
+            <button class="sheet-pill" data-sheet="{_escape(s_name)}" onclick="setSheetFilter(this.getAttribute('data-sheet'), this)">
+                📁 {_escape(s_name)} <span class="pill-badge">{s_count}</span>
+            </button>
+            """)
+        sheet_tabs_html = f"""
+        <div class="sheet-tabs-container">
+            <span class="sheet-tabs-label">📑 Modules / Sheets:</span>
+            <div class="sheet-tabs-pills">
+                <button class="sheet-pill active" data-sheet="all" onclick="setSheetFilter('all', this)">
+                    🌐 All Sheets <span class="pill-badge">{total_tests}</span>
+                </button>
+                {"".join(pills)}
+            </div>
+        </div>
+        """
+
     # Generate rows HTML
     rows_html = []
     for idx, row in enumerate(df.to_dict("records")):
+        row_sheet = str(row.get("Sheet_Name", "Default")).strip()
+        if not row_sheet or row_sheet.lower() in ["nan", "none"]:
+            row_sheet = "Default"
         status = str(row.get("Status", "PENDING")).upper()
         if status == "PASSED":
             badge_cls = "badge-pass"
@@ -161,13 +194,39 @@ def generate_html_report(df: pd.DataFrame, title: str = "Test Execution Quality 
         else:
             target_display = '<span class="text-dim">No target URL specified</span>'
 
+        # Collect any custom columns not in standard set
+        standard_cols = {
+            "run", "type", "target", "test_step_description", "expected_result",
+            "status", "duration", "actual_result", "screenshot", "execution_notes",
+            "playwright_code", "generated_by", "sheet_name"
+        }
+        custom_metadata = {k: v for k, v in row.items() if str(k).lower().strip() not in standard_cols and pd.notna(v) and str(v).strip() and str(v).strip().lower() not in ["none", "nan", "-"]}
+
+        custom_meta_html = ""
+        if custom_metadata:
+            meta_items = []
+            for m_key, m_val in custom_metadata.items():
+                meta_items.append(f"""
+                <div class="spec-item custom-spec-item">
+                    <div class="spec-label">{_escape(m_key)}</div>
+                    <div class="spec-value custom-val">{_escape(m_val)}</div>
+                </div>
+                """)
+            custom_meta_html = f"""
+            <div class="custom-meta-divider"></div>
+            <div class="custom-meta-heading">📋 Native Sheet Metadata</div>
+            {"".join(meta_items)}
+            """
+
+        sheet_tag_html = f'<span class="sheet-badge-tag">📁 {_escape(row_sheet)}</span>' if has_multiple_sheets else ''
+
         row_html = f"""
-        <tr class="test-row status-{status.lower()} type-{t_type.lower()}" onclick="toggleDetails('details-{idx}', this)">
+        <tr class="test-row status-{status.lower()} type-{t_type.lower()}" data-sheet="{_escape(row_sheet)}" onclick="toggleDetails('details-{idx}', this)">
             <td class="col-id"><span class="test-id-pill">#{idx}</span></td>
             <td class="col-type"><span class="badge {type_cls}">{type_icon} {t_type}</span></td>
             <td class="col-status"><span class="badge {badge_cls}">{badge_icon} {status}</span></td>
             <td class="col-info">
-                <div class="step-title">{esc_step}</div>
+                <div class="step-title">{sheet_tag_html}{esc_step}</div>
                 <div class="step-target-bar">
                     <span class="target-prefix">Target:</span> {target_display}
                 </div>
@@ -213,6 +272,7 @@ def generate_html_report(df: pd.DataFrame, title: str = "Test Execution Quality 
                                         <span>{esc_actual}</span>
                                     </div>
                                 </div>
+                                {custom_meta_html}
                             </div>
                         </div>
 
@@ -486,6 +546,95 @@ def generate_html_report(df: pd.DataFrame, title: str = "Test Execution Quality 
             color: var(--text-dim);
         }}
 
+        /* Sheet Tabs Bar */
+        .sheet-tabs-container {{
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 14px;
+            padding: 12px 18px;
+            background: var(--bg-surface);
+            border: 1px solid var(--border-card);
+            border-radius: 12px;
+            flex-wrap: wrap;
+        }}
+        .sheet-tabs-label {{
+            font-size: 0.84rem;
+            font-weight: 700;
+            color: var(--accent-cyan);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }}
+        .sheet-tabs-pills {{
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }}
+        .sheet-pill {{
+            background: var(--bg-card);
+            border: 1px solid var(--border-subtle);
+            color: var(--text-secondary);
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 0.82rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }}
+        .sheet-pill:hover {{
+            background: var(--bg-hover);
+            color: #ffffff;
+            border-color: var(--accent-blue);
+        }}
+        .sheet-pill.active {{
+            background: linear-gradient(135deg, #2563eb, #3b82f6);
+            color: #ffffff;
+            border-color: transparent;
+            box-shadow: 0 2px 10px rgba(59, 130, 246, 0.4);
+        }}
+        .pill-badge {{
+            background: rgba(0, 0, 0, 0.35);
+            padding: 2px 7px;
+            border-radius: 10px;
+            font-size: 0.75rem;
+            margin-left: 4px;
+        }}
+        .sheet-badge-tag {{
+            display: inline-block;
+            background: rgba(56, 189, 248, 0.12);
+            color: var(--accent-cyan);
+            border: 1px solid rgba(56, 189, 248, 0.25);
+            font-size: 0.72rem;
+            font-weight: 700;
+            padding: 2px 7px;
+            border-radius: 5px;
+            margin-right: 6px;
+        }}
+        .custom-meta-divider {{
+            height: 1px;
+            background: var(--border-subtle);
+            margin: 12px 0 8px 0;
+        }}
+        .custom-meta-heading {{
+            font-size: 0.82rem;
+            font-weight: 700;
+            color: var(--accent-cyan);
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }}
+        .custom-spec-item {{
+            background: rgba(255, 255, 255, 0.02);
+            padding: 6px 10px;
+            border-radius: 6px;
+            border-left: 3px solid var(--accent-blue);
+            margin-bottom: 6px;
+        }}
+        .custom-val {{
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+        }}
+
         /* Filter Toolbar */
         .toolbar-card {{
             background: var(--bg-surface);
@@ -531,6 +680,17 @@ def generate_html_report(df: pd.DataFrame, title: str = "Test Execution Quality 
             transform: translateY(-50%);
             color: var(--text-dim);
             font-size: 0.95rem;
+        }}
+
+        .filter-count-badge {{
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            font-weight: 600;
+            padding: 5px 12px;
+            background: rgba(255, 255, 255, 0.04);
+            border-radius: 6px;
+            border: 1px solid var(--border-subtle);
+            white-space: nowrap;
         }}
 
         .filter-group {{
@@ -1209,12 +1369,15 @@ def generate_html_report(df: pd.DataFrame, title: str = "Test Execution Quality 
             </div>
         </div>
 
+        {sheet_tabs_html}
+
         <!-- Filter & Search Toolbar -->
         <div class="toolbar-card">
             <div class="search-container">
                 <span class="search-icon">🔍</span>
                 <input type="text" id="searchInput" class="search-input" placeholder="Search test step, target URL, actual result, or automation script..." onkeyup="filterTable()"/>
             </div>
+            <span id="filterMatchCount" class="filter-count-badge">Showing {total_tests} of {total_tests} tests</span>
             <div class="filter-group">
                 <button class="filter-btn active" data-status="all" onclick="setStatusFilter('all', this)">
                     All <span class="btn-badge">{total_tests}</span>
@@ -1291,11 +1454,23 @@ def generate_html_report(df: pd.DataFrame, title: str = "Test Execution Quality 
         function toggleAllDetails(expand) {{
             const detailsRows = document.querySelectorAll('.details-row');
             const chevrons = document.querySelectorAll('.expand-chevron');
+            let count = 0;
+            const maxBatch = 150; // Throttling: prevent browser hang on huge suites
+
             detailsRows.forEach(r => {{
-                // Only toggle if parent test-row is currently visible
                 const parentTestRow = r.previousElementSibling;
-                if (!parentTestRow || parentTestRow.style.display !== 'none') {{
-                    r.style.display = expand ? 'table-row' : 'none';
+                const isVisible = parentTestRow && parentTestRow.style.display !== 'none';
+                if (isVisible) {{
+                    if (expand) {{
+                        if (count < maxBatch) {{
+                            r.style.display = 'table-row';
+                            count++;
+                        }}
+                    }} else {{
+                        r.style.display = 'none';
+                    }}
+                }} else {{
+                    r.style.display = 'none';
                 }}
             }});
             chevrons.forEach(c => {{
@@ -1306,38 +1481,79 @@ def generate_html_report(df: pd.DataFrame, title: str = "Test Execution Quality 
         function setStatusFilter(status, btn) {{
             activeStatusFilter = status;
             document.querySelectorAll('[data-status]').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
+            if (btn) btn.classList.add('active');
             filterTable();
         }}
 
         function setTypeFilter(t, btn) {{
             activeTypeFilter = t;
             document.querySelectorAll('[data-type]').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
+            if (btn) btn.classList.add('active');
+            filterTable();
+        }}
+
+        let activeSheetFilter = 'all';
+
+        function setSheetFilter(sheet, btn) {{
+            activeSheetFilter = sheet || 'all';
+            document.querySelectorAll('.sheet-pill').forEach(b => b.classList.remove('active'));
+            if (btn) btn.classList.add('active');
             filterTable();
         }}
 
         function filterTable() {{
             const query = (document.getElementById('searchInput').value || '').toLowerCase().trim();
+            const hasQuery = query.length > 0;
             const rows = document.querySelectorAll('#testTableBody tr.test-row');
 
-            rows.forEach(row => {{
-                const text = row.innerText.toLowerCase();
-                const matchesQuery = !query || text.includes(query);
-                
-                const hasStatus = activeStatusFilter === 'all' || row.classList.contains('status-' + activeStatusFilter);
-                const hasType = activeTypeFilter === 'all' || row.classList.contains('type-' + activeTypeFilter);
+            const reqStatus = activeStatusFilter !== 'all' ? 'status-' + activeStatusFilter : null;
+            const reqType = activeTypeFilter !== 'all' ? 'type-' + activeTypeFilter : null;
+            const reqSheet = activeSheetFilter !== 'all' ? activeSheetFilter.toLowerCase() : null;
 
+            let matchCount = 0;
+
+            for (let i = 0; i < rows.length; i++) {{
+                const row = rows[i];
                 const nextRow = row.nextElementSibling;
-                if (matchesQuery && hasStatus && hasType) {{
-                    row.style.display = 'table-row';
-                }} else {{
+
+                if (reqStatus && !row.classList.contains(reqStatus)) {{
                     row.style.display = 'none';
-                    if (nextRow && nextRow.classList.contains('details-row')) {{
-                        nextRow.style.display = 'none';
+                    if (nextRow && nextRow.classList.contains('details-row')) nextRow.style.display = 'none';
+                    continue;
+                }}
+
+                if (reqType && !row.classList.contains(reqType)) {{
+                    row.style.display = 'none';
+                    if (nextRow && nextRow.classList.contains('details-row')) nextRow.style.display = 'none';
+                    continue;
+                }}
+
+                if (reqSheet) {{
+                    const rowSheet = (row.getAttribute('data-sheet') || 'Default').toLowerCase();
+                    if (rowSheet !== reqSheet) {{
+                        row.style.display = 'none';
+                        if (nextRow && nextRow.classList.contains('details-row')) nextRow.style.display = 'none';
+                        continue;
                     }}
                 }}
-            }});
+
+                if (hasQuery) {{
+                    const text = (row.textContent || '').toLowerCase();
+                    if (!text.includes(query)) {{
+                        row.style.display = 'none';
+                        if (nextRow && nextRow.classList.contains('details-row')) nextRow.style.display = 'none';
+                        continue;
+                    }}
+                }}
+
+                row.style.display = 'table-row';
+                matchCount++;
+            }}
+
+            const matchCounter = document.getElementById('filterMatchCount');
+            if (matchCounter) {{
+                matchCounter.textContent = 'Showing ' + matchCount + ' of ' + rows.length + ' tests';
+            }}
         }}
 
         function copyText(txt, btn) {{

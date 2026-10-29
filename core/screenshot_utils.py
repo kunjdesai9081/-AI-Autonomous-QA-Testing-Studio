@@ -117,6 +117,10 @@ def capture_full_scroll_screenshot(page, file_path: str = None) -> bytes:
             
             candidates.forEach(el => {
                 try {
+                    // Do not unconstrain or distort slide menus, drawers, or modal dialogs
+                    if (el.closest('[role="dialog"], .offcanvas, .drawer, .ant-drawer, .modal, [class*="slide-menu"], [class*="drawer"]')) {
+                        return;
+                    }
                     const style = window.getComputedStyle(el);
                     const isRestrictedHeight = (style.height.includes('vh') || style.maxHeight.includes('vh') || style.height.includes('100%') || style.maxHeight.includes('100%'));
                     const isScrollable = (style.overflowY === 'auto' || style.overflowY === 'scroll' || style.overflowY === 'hidden');

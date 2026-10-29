@@ -476,8 +476,9 @@ class APIRunner:
             os.makedirs(script_dir, exist_ok=True)
             script_path = os.path.join(script_dir, f"API_{safe_name}.py")
 
+            commented_step = "\n".join(f"# {line}" for line in str(self.test_step).splitlines())
             full_script = (
-                f"# API Test Step: {self.test_step}\n"
+                f"{commented_step}\n"
                 f"# Target URL: {self.url}\n\n"
                 f"import json\nimport requests\nimport time\n\n"
                 f"def run_api_test():\n"

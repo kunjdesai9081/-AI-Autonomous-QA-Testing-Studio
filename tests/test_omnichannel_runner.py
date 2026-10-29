@@ -76,7 +76,7 @@ class TestOmnichannelRunner(unittest.TestCase):
         """Android and Electron CDP configurations must resolve custom or default endpoints."""
         android_cfg = _resolve_platform_config({"platform": "android_cdp"})
         self.assertTrue(android_cfg["is_cdp"])
-        self.assertEqual(android_cfg["cdp_url"], "http://localhost:9222")
+        self.assertEqual(android_cfg["cdp_url"], "http://127.0.0.1:9222")
 
         electron_cfg = _resolve_platform_config({
             "platform": "electron_cdp",

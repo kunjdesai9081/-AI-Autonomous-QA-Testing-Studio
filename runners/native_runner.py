@@ -83,17 +83,17 @@ def classify_and_validate_test_channel(
             )
         # Check / attempt port forward
         forward_device_port("chrome_devtools_remote", local_port=9222, serial=serial)
-        cdp_targets = fetch_cdp_targets("http://localhost:9222")
+        cdp_targets = fetch_cdp_targets("http://127.0.0.1:9222")
         if not cdp_targets:
             return "cdp_mobile", (
-                "⚠️ Android CDP Warning: Could not reach Chrome or WebView on device at http://localhost:9222. "
+                "⚠️ Android CDP Warning: Could not reach Chrome or WebView on device at http://127.0.0.1:9222. "
                 "Make sure Chrome or your app's inspectable WebView is open on the phone and port is forwarded."
             )
         return "cdp_mobile", None
 
     # 4. CDP Desktop Electron
     if platform_config.get("platform") == "electron_cdp":
-        cdp_url = platform_config.get("cdp_url") or "http://localhost:9223"
+        cdp_url = platform_config.get("cdp_url") or "http://127.0.0.1:9223"
         cdp_targets = fetch_cdp_targets(cdp_url)
         if not cdp_targets:
             return "cdp_electron", (

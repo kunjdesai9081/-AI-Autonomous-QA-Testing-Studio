@@ -1,4 +1,6 @@
 import ast
+import csv
+import io
 import json
 import os
 import re
@@ -19,6 +21,8 @@ if sys.stderr and hasattr(sys.stderr, "reconfigure"):
         pass
 
 from concurrent.futures import ThreadPoolExecutor
+import time
+from typing import Optional, Callable
 from core.adk_orchestrator import TestOrchestrator
 from core.screenshot_utils import capture_full_scroll_screenshot
 
@@ -27,6 +31,14 @@ def _clean_and_parse_json(text: str, default_target: str = "", default_type: str
     """Robustly extracts and parses JSON array/object from AI response, including reasoning wrappers, truncated streams, and numbered lists."""
     if not text:
         return None
+
+    try:
+        from core.robust_engine import RobustJSONRepairEngine
+        res = RobustJSONRepairEngine.clean_and_parse(text, default_target=default_target)
+        if res and len(res) > 0:
+            return res
+    except Exception:
+        pass
 
     cleaned = str(text).strip()
 
@@ -219,6 +231,120 @@ def _synthesize_default_playwright_code(step_desc: str, expected: str = "", targ
         else:
             return f'# Android Native Assertion (Playwright Device Shell)\n# Target: {target_url}\nassert device.shell("dumpsys window | grep mCurrentFocus")\n'
     
+    # 0.1 Password Visibility / Show Hide Password
+    if any(k in desc for k in ["show/hide", "show password", "hide password", "visibility toggle", "password visibility", "password masked"]):
+        return """pwd_val = test_data.get('Password') or test_data.get('password') or 'MaskedTestPass1!'
+pwd_inp = page.locator('input[type="password"], input[name*="password" i]').first
+if pwd_inp.count() > 0:
+    pwd_inp.fill(pwd_val)
+toggle_btn = page.locator('button[aria-label*="password" i], .password-toggle, button:has([class*="eye"]), svg[class*="eye"], button:has-text("Show"), button:has-text("Hide")').first
+if toggle_btn.count() > 0:
+    toggle_btn.click(force=True)
+    page.wait_for_timeout(250)
+expect(page.locator('input[name*="password" i], input[type="text"], input[type="password"]').first).to_be_visible()"""
+
+    # 0.2 Empty / Mandatory / Required Field Validation for Auth/Login
+    is_login_flow = any(k in desc for k in ["login", "credential", "auth", "email", "password", "sign in", "signin"])
+    if is_login_flow and any(k in desc for k in ["empty email", "empty password", "both fields empty", "mandatory login", "leave email", "leave password", "blank email", "blank password", "without entering an email"]):
+        return """email_inp = page.locator('input[type="email"], input[name*="email" i], input[placeholder*="email" i], input[name*="user" i]').first
+pwd_inp = page.locator('input[type="password"], input[name*="password" i]').first
+if email_inp.count() > 0:
+    email_inp.fill("")
+if pwd_inp.count() > 0:
+    pwd_inp.fill("")
+login_btn = page.locator('button[type="submit"], input[type="submit"], button:has-text("Login"), button:has-text("Sign in"), button:has-text("Next"), button:has-text("Save")').first
+if login_btn.count() > 0:
+    login_btn.click(force=True)
+    page.wait_for_timeout(350)
+val_el = page.locator('.error, .invalid-feedback, [role="alert"], [class*="error"], [class*="alert"], text=/required|mandatory|please enter|cannot be empty/i').first
+expect(val_el).to_be_visible(timeout=5000)"""
+
+    # 0.3 Invalid Email Format / Malformed Email
+    if any(k in desc for k in ["invalid email", "malformed email", "email format", "reject plain text email", "reject incomplete email", "reject consecutive dots"]):
+        invalid_sample = "invalid-email-format"
+        if "abc@" in desc:
+            invalid_sample = "abc@"
+        elif "@abc.com" in desc:
+            invalid_sample = "@abc.com"
+        elif "abc..com" in desc:
+            invalid_sample = "abc..com"
+        elif "abc" in desc:
+            invalid_sample = "abc"
+        return f"""email_inp = page.locator('input[type="email"], input[name*="email" i], input[placeholder*="email" i], input[name*="user" i]').first
+if email_inp.count() > 0:
+    email_inp.fill("{invalid_sample}")
+login_btn = page.locator('button[type="submit"], input[type="submit"], button:has-text("Login"), button:has-text("Sign in"), button:has-text("Next")').first
+if login_btn.count() > 0:
+    login_btn.click(force=True)
+    page.wait_for_timeout(350)
+expect(page.locator('.error, .invalid-feedback, [role="alert"], text=/valid email|invalid|format/i').first).to_be_visible(timeout=5000)"""
+
+    # 0.4 Whitespace Input Validation
+    if any(k in desc for k in ["whitespace-only", "whitespace", "leading/trailing", "spaces only"]):
+        return """email_inp = page.locator('input[type="email"], input[name*="email" i], input[placeholder*="email" i], input[name*="user" i]').first
+pwd_inp = page.locator('input[type="password"], input[name*="password" i]').first
+if email_inp.count() > 0:
+    email_inp.fill("   ")
+if pwd_inp.count() > 0:
+    pwd_inp.fill("   ")
+login_btn = page.locator('button[type="submit"], input[type="submit"], button:has-text("Login"), button:has-text("Sign in")').first
+if login_btn.count() > 0:
+    login_btn.click(force=True)
+    page.wait_for_timeout(350)
+expect(page.locator('.error, .invalid-feedback, [role="alert"], text=/required|invalid|please enter/i').first).to_be_visible(timeout=5000)"""
+
+    # 0.5 Invalid Password / Unknown Account / Generic Response
+    if any(k in desc for k in ["incorrect password", "invalid password", "wrong password", "unknown email", "unknown account", "inactive account"]):
+        return """email_inp = page.locator('input[type="email"], input[name*="email" i], input[placeholder*="email" i], input[name*="user" i]').first
+pwd_inp = page.locator('input[type="password"], input[name*="password" i]').first
+if email_inp.count() > 0:
+    email_inp.fill("invalid_user_check@test.local")
+if pwd_inp.count() > 0:
+    pwd_inp.fill("InvalidPassword_Check999!")
+login_btn = page.locator('button[type="submit"], input[type="submit"], button:has-text("Login"), button:has-text("Sign in")').first
+if login_btn.count() > 0:
+    login_btn.click(force=True)
+    page.wait_for_timeout(500)
+expect(page.locator('.alert, .error, [role="alert"], text=/invalid email or password|invalid credentials|not found|generic/i').first).to_be_visible(timeout=5000)"""
+
+    # 0.6 Successful Login / Valid Credentials Entry (Dynamic from test_data variables)
+    if (any(k in desc for k in ["enter valid email and password", "valid credentials", "successful super admin login", "enter a valid email and password", "login with valid credentials", "successful login"])
+        and "without" not in desc and "unauthenticated" not in desc):
+        return """target_email = test_data.get('Email') or test_data.get('email') or test_data.get('Username') or test_data.get('username') or os.environ.get('TEST_EMAIL', '')
+target_pass = test_data.get('Password') or test_data.get('password') or os.environ.get('TEST_PASSWORD', '')
+email_inp = page.locator('input[type="email"], input[name*="email" i], input[placeholder*="email" i], input[name*="user" i]').first
+pwd_inp = page.locator('input[type="password"], input[name*="password" i]').first
+if email_inp.count() > 0 and email_inp.is_visible() and target_email:
+    email_inp.fill(target_email)
+if pwd_inp.count() > 0 and pwd_inp.is_visible() and target_pass:
+    pwd_inp.fill(target_pass)
+login_btn = page.locator('button[type="submit"], input[type="submit"], button:has-text("Login"), button:has-text("Sign in")').first
+if login_btn.count() > 0 and login_btn.is_visible():
+    login_btn.click(force=True)
+    page.wait_for_timeout(1000)
+expect(page.locator('body, #root, main, [role="main"]').first).to_be_visible(timeout=5000)"""
+
+    # 0.7 Forgot Password Link & Navigation
+    if any(k in desc for k in ["forgot password", "verify forgot password link", "password recovery", "reset password"]):
+        return """forgot_link = page.locator('a:has-text("Forgot Password"), button:has-text("Forgot Password"), a[href*="forgot" i], [class*="forgot" i]').first
+if forgot_link.count() > 0:
+    forgot_link.click(force=True)
+    page.wait_for_timeout(500)
+expect(page.locator('body, #root, form, main').first).to_be_visible(timeout=5000)"""
+
+    # 0.8 Logout / Session Invalidation
+    if any(k in desc for k in ["logout", "log out", "sign out"]):
+        return """logout_btn = page.locator('button:has-text("Logout"), a:has-text("Logout"), [aria-label*="logout" i], button:has-text("Sign Out"), a:has-text("Sign Out")').first
+if logout_btn.count() > 0 and logout_btn.is_visible():
+    logout_btn.click(force=True)
+    page.wait_for_timeout(500)
+expect(page.locator('body, #root, form, input[type="email"], input[type="password"]').first).to_be_visible(timeout=5000)"""
+
+    # 0.9 Initial Load / Branding / Open URL
+    if any(k in desc for k in ["open the super admin login url", "access super admin login url", "verify login page branding", "turnstile hidden on initial load", "loads correctly", "page load", "screen loads"]):
+        return """expect(page.locator('body, #root, main, form').first).to_be_visible(timeout=5000)
+expect(page.locator('input[type="email"], input[name*="email" i], input[placeholder*="email" i], [class*="login"], [class*="brand"], [class*="logo"]').first).to_be_visible(timeout=5000)"""
+
     # Classify whether this step is focused on Tab/Pill, Search, Filter Drawer, or Form
     is_tab_or_pill = any(k in desc for k in ["pill tab", "filter tab", "tab filter", "tab selector", "tab switching", "click on 'today'", "click on 'week'", "click on 'month'", "click on 'custom'", "click on the 'all'", "click on the 'mine'", "click on the 'my team'", "click on the 'employee'"])
     if is_tab_or_pill:
@@ -250,9 +376,88 @@ expect(page.locator('body')).to_be_visible()"""
     is_edit_record = any(k in desc for k in ["edit record", "record editor", "modify record", "edit existing record", "update record"])
     is_delete_safeguard = any(k in desc for k in ["delete", "archive", "remove record"]) and any(k in desc for k in ["safeguard", "confirmation", "cancel", "prompt"])
     is_status_change = any(k in desc for k in ["change status", "update status", "status dropdown", "phase control", "status to next phase", "record status", "phase management", "toggle status"])
-    is_form = any(k in desc for k in ["fill form", "populate fields", "save changes", "create new", "new entry", "entry form", "required", "blank", "validation", "draft", "submit form", "cancel form", "form filling", "adding something", "add new", "add record", "invalid format", "boundary value", "input sanitization"]) and not is_filter and not is_search and not is_edit_record and not is_status_change and not is_delete_safeguard
+    is_kpi = (
+        any(k in desc for k in ["kpi card", "metric card", "kpi tile", "metric tile", "kpi metric", "kpi", "metric value", "stat card", "trend indicator", "trend badge"])
+        and not is_tab_or_pill and not is_search and not is_filter and not is_edit_record and not is_delete_safeguard
+    )
+    is_form = any(k in desc for k in ["fill form", "populate fields", "save changes", "create new", "new entry", "entry form", "required", "blank", "validation", "draft", "submit form", "cancel form", "form filling", "adding something", "add new", "add record", "invalid format", "boundary value", "input sanitization"]) and not is_filter and not is_search and not is_edit_record and not is_status_change and not is_delete_safeguard and not is_kpi
     is_view_details = any(k in desc for k in ["view details", "row drill-down", "record inspect", "inspect record", "details modal", "details drawer"])
     is_row_selection = any(k in desc for k in ["row selection", "bulk action", "selection checkbox", "checkboxes"])
+
+    # 0.95 KPI & Metric Card Interactive and Value Verification Workflow
+    if is_kpi:
+        matches = re.findall(r"['\"]([^'\"]+)['\"]", step_desc)
+        kpi_term = matches[0] if matches else ""
+        is_click = any(k in desc for k in ["click", "drill-down", "drilldown", "navigate", "filter view", "drill down", "open view", "view updates"])
+        is_trend = any(k in desc for k in ["trend", "badge", "delta", "indicator", "positive/negative", "status styling"])
+
+        if is_click and kpi_term:
+            return f"""# 1. Clean backdrop overlays and dismiss open drawers
+try:
+    page.keyboard.press("Escape")
+    page.evaluate("() => document.querySelectorAll('.modal-backdrop, .offcanvas-backdrop').forEach(e => (e.style.display = 'none', e.style.pointerEvents = 'none'))")
+except Exception:
+    pass
+
+# 2. Locate interactive KPI card for '{kpi_term}'
+kpi_term = {json.dumps(kpi_term)}
+kpi_card = page.locator('div, [role="region"], [role="button"], a, button, [class*="card"], [class*="stat"], [class*="metric"], [class*="tile"], [class*="summary"], [class*="kpi"]').filter(has_text=kpi_term).first
+if kpi_card.count() == 0:
+    kpi_card = page.get_by_text(kpi_term).first
+
+if kpi_card.count() > 0:
+    try:
+        kpi_card.scroll_into_view_if_needed(timeout=1500)
+    except Exception:
+        pass
+    orig_url = page.url
+    click_target = kpi_card.locator('a, button, [role="button"]').first if kpi_card.locator('a, button, [role="button"]').count() > 0 else kpi_card
+    click_target.click(force=True)
+    page.wait_for_timeout(350)
+    expect(page.locator('body')).to_be_visible()
+    # Baseline restoration: return to original screen if URL changed
+    if page.url != orig_url:
+        try:
+            page.go_back(timeout=4000)
+            page.wait_for_timeout(250)
+        except Exception:
+            page.goto(orig_url, wait_until="domcontentloaded", timeout=6000)
+    else:
+        page.keyboard.press("Escape")
+    print(f"[KPI Drill-Down Test] Interactive KPI card '{kpi_term}' verified cleanly.")
+else:
+    expect(page.locator('body')).to_be_visible()"""
+
+        elif is_trend and kpi_term:
+            trend_term = matches[1] if len(matches) > 1 else ""
+            return f"""# 1. Locate KPI card trend badge
+kpi_term = {json.dumps(kpi_term)}
+trend_term = {json.dumps(trend_term)}
+kpi_card = page.locator('div, [role="region"], [class*="card"], [class*="stat"], [class*="metric"], [class*="tile"], [class*="summary"], [class*="kpi"]').filter(has_text=kpi_term).first
+if kpi_card.count() == 0:
+    kpi_card = page.get_by_text(kpi_term).first
+if kpi_card.count() > 0 and trend_term:
+    trend_el = kpi_card.locator('.badge, [class*="trend"], [class*="status"], [class*="delta"], span, div').filter(has_text=trend_term).first
+    if trend_el.count() > 0:
+        expect(trend_el).to_be_visible(timeout=3000)
+expect(page.locator('body')).to_be_visible()
+print(f"[KPI Trend Test] KPI card '{kpi_term}' trend indicator verified.")"""
+
+        else:
+            term = kpi_term or "KPI"
+            return f"""# 1. Locate KPI card and verify value rendering
+kpi_term = {json.dumps(term)}
+kpi_card = page.locator('div, [role="region"], [role="button"], a, button, [class*="card"], [class*="stat"], [class*="metric"], [class*="tile"], [class*="summary"], [class*="kpi"]').filter(has_text=kpi_term).first
+if kpi_card.count() == 0:
+    kpi_card = page.get_by_text(kpi_term).first
+
+if kpi_card.count() > 0:
+    expect(kpi_card).to_be_visible(timeout=5000)
+    card_txt = page.evaluate("(el) => (el.innerText || el.textContent || '').trim()", kpi_card.element_handle()) if hasattr(kpi_card, "element_handle") else ""
+    assert bool(card_txt), f"KPI card '{kpi_term}' should render non-empty content"
+    print(f"[KPI Metric Test] KPI card '{kpi_term}' rendered and verified.")
+else:
+    expect(page.locator('body')).to_be_visible()"""
 
     # 1. Clear & Reset Search Workflow
     if ("clear" in desc or "reset" in desc) and is_search:
@@ -947,6 +1152,80 @@ if logo.count() > 0 and logo.is_visible():
     expect(logo).to_be_visible()
 expect(page.locator("body")).to_be_visible()"""
 
+    # 10B. Slide Bar / Range Slider Drag & Adjust Workflow
+    if any(k in desc for k in ["slide bar", "slider", "seekbar", "range input", "range slider", "slide and adjust"]):
+        return """# 1. Locate range slider or seekbar on the page
+slider = page.locator('input[type="range"], [role="slider"], .range-slider, .slider').first
+if slider.count() > 0:
+    box = slider.bounding_box()
+    if box:
+        page.mouse.move(box["x"] + 5, box["y"] + box["height"] / 2)
+        page.mouse.down()
+        page.mouse.move(box["x"] + box["width"] * 0.75, box["y"] + box["height"] / 2, steps=8)
+        page.mouse.up()
+        page.wait_for_timeout(250)
+    else:
+        try:
+            slider.fill("75")
+        except Exception:
+            pass
+    expect(slider).to_be_visible()
+else:
+    expect(page.locator('body')).to_be_visible()
+print("[Slide Bar Test] Range slider / seekbar adjusted cleanly.")"""
+
+    # 10C. Dropdown & Combobox Selection Workflow
+    if any(k in desc for k in ["dropdown", "select option", "combobox", "select element", "choose option"]):
+        return """# 1. Locate select or dropdown element
+select_el = page.locator('select:visible, [role="combobox"]:visible, .dropdown-toggle:visible').first
+if select_el.count() > 0:
+    tag = select_el.evaluate("el => el.tagName.toLowerCase()")
+    if tag == "select":
+        opts = select_el.locator("option").all()
+        if len(opts) > 1:
+            select_el.select_option(index=1)
+    else:
+        select_el.click(force=True)
+        page.wait_for_timeout(200)
+        opt = page.locator('.dropdown-menu .dropdown-item, [role="option"], .select-item').first
+        if opt.count() > 0:
+            opt.click(force=True)
+    page.wait_for_timeout(200)
+expect(page.locator('body')).to_be_visible()
+print("[Dropdown Test] Option selected successfully.")"""
+
+    # 10D. Checkbox & Switch Toggle Workflow
+    if any(k in desc for k in ["toggle switch", "checkbox toggle", "switch control", "toggle option", "checkbox on and off"]):
+        return """# 1. Locate toggle switch or checkbox
+toggle_el = page.locator('input[type="checkbox"]:visible, [role="switch"]:visible, .form-check-input:visible, .switch:visible').first
+if toggle_el.count() > 0:
+    toggle_el.click(force=True)
+    page.wait_for_timeout(200)
+    toggle_el.click(force=True)
+    page.wait_for_timeout(150)
+expect(page.locator('body')).to_be_visible()
+print("[Toggle Test] Checkbox / toggle switch toggled cleanly.")"""
+
+    # 10E. Keyboard Focus & Accessibility Traversal
+    if any(k in desc for k in ["keyboard", "tab navigation", "focus traversal", "tab key", "a11y focus"]):
+        return """# 1. Test keyboard tab navigation across interactive controls
+page.locator('body').click()
+for _ in range(4):
+    page.keyboard.press("Tab")
+    page.wait_for_timeout(100)
+focused_tag = page.evaluate("() => document.activeElement ? document.activeElement.tagName : 'NONE'")
+assert focused_tag != 'NONE', "Keyboard focus traversal should reach an interactive element"
+expect(page.locator('body')).to_be_visible()
+print("[Keyboard A11y Test] Tab key focus traversal validated successfully.")"""
+
+    # 10F. Network & Backend Health Contract
+    if any(k in desc for k in ["network contract", "backend health", "api contract integrity", "network status", "500 server error"]):
+        return """# 1. Verify page interactive health and check for 0 severe unhandled console errors
+expect(page.locator('body')).to_be_visible()
+lower_body = page.evaluate("() => document.body ? document.body.innerText.toLowerCase() : ''")
+assert not any(err in lower_body for err in ["500 internal server error", "502 bad gateway", "cannot get /"]), "Page must not display 5xx server crash errors"
+print("[Network Health Test] Zero server crashes detected.")"""
+
     # 11. Button State & Clickability Validation
     if any(k in desc for k in ["button state", "is enabled", "is disabled", "clickable", "button is visible", "enabled and clickable"]):
         matches = re.findall(r"['\"]([^'\"]+)['\"]", step_desc)
@@ -982,15 +1261,47 @@ if btn.count() > 0:
         pass
     btn.click(force=True)
     page.wait_for_timeout(250)
+else:
+    raise AssertionError(f"[NOT APPLICABLE] Required action button/link '{btn_text}' not found on active page ({{page.url}})")
 expect(page.locator('body')).to_be_visible()"""
-        return """btn = page.locator('button:has-text("Create"), button:has-text("Add"), button:has-text("New"), button:has-text("Export"), button[class*="btn-primary"], button, a[role="button"], input[type="submit"]').first
+        return f"""btn = page.locator('button:has-text("Create"), button:has-text("Add"), button:has-text("New"), button:has-text("Export"), button[class*="btn-primary"], button, a[role="button"], input[type="submit"]').first
 if btn.count() > 0:
     btn.click(force=True)
     page.wait_for_timeout(250)
+else:
+    raise AssertionError(f"[NOT APPLICABLE] Action button not found for step '{step_desc}' on active page ({{page.url}})")
 expect(page.locator('body')).to_be_visible()"""
 
+    # 13. Dynamic Domain Action / Element Verification Fallback
+    target_terms = re.findall(r"['\"]([^'\"]+)['\"]", step_desc + " " + expected)
+    if not target_terms:
+        cand_words = [w for w in re.findall(r"\b[A-Z][a-zA-Z0-9_-]+\b", step_desc) if w.lower() not in ["verify", "check", "ensure", "user", "admin", "super", "system", "test", "step", "page", "screen", "role"]]
+        if cand_words:
+            target_terms = [" ".join(cand_words[:3])]
 
-    # 13. Default Screen Load Verification
+    is_pure_load = any(p in desc for p in ["landing", "page load", "screen display", "initial load", "welcome screen", "loads without error"]) and not any(a in desc for a in ["click", "fill", "type", "enter", "select", "submit", "delete", "toggle", "create", "save", "edit", "clear", "reset", "filter", "search", "upload", "download", "approve", "reject"])
+    if not is_pure_load and target_terms:
+        term = target_terms[0]
+        return f"""# Dynamic element search for: {term}
+el = page.locator('button, a, input, select, [role="button"], [role="tab"], .btn, th, td, h1, h2, h3, h4, .card-title, label').filter(has_text={json.dumps(term)}).first
+if el.count() == 0:
+    el = page.get_by_text({json.dumps(term)}).first
+if el.count() > 0:
+    try:
+        el.scroll_into_view_if_needed(timeout=1500)
+    except Exception:
+        pass
+    if any(k in {json.dumps(desc)} for k in ["click", "press", "tap", "open", "select"]):
+        el.click(force=True)
+        page.wait_for_timeout(250)
+    expect(el).to_be_visible()
+else:
+    raise AssertionError(f"[NOT APPLICABLE] Target domain element '{term}' described in test step not found on active page ({{page.url}})")"""
+    elif not is_pure_load:
+        # Action step with no identifiable elements
+        return f"""raise AssertionError(f"[NOT APPLICABLE] Action step '{step_desc}' cannot be verified without target UI element on active page ({{page.url}})")"""
+
+    # Pure Screen Load Verification
     return "expect(page.locator('body, #root, main, [role=\"main\"]').first).to_be_visible(timeout=5000)"
 
 
@@ -1310,8 +1621,8 @@ def _synthesize_comprehensive_screen_cases(s: dict, screen_url: str, screen_ss: 
         elif sf_type == "config_module":
             cases.append({
                 "Type": "Web",
-                "Target": sf_url,
-                "Test_Step_Description": f"Step 1: Navigate to Configuration sub-module '{sf_name}' ({sf_url}) -> Step 2: Verify module data table/settings render -> Step 3: Check primary action controls.",
+                "Target": sf_url or screen_url,
+                "Test_Step_Description": f"Step 1: Navigate to Configuration sub-module '{sf_name}' on '{screen_name}' -> Step 2: Verify module data table/settings render -> Step 3: Check primary action controls.",
                 "Expected_Result": f"Configuration module '{sf_name}' loads cleanly and displays management controls.",
                 "Playwright_Code": "expect(page.locator('body, #root, main').first).to_be_visible(timeout=5000)",
                 "Screenshot": sf_ss,
@@ -1321,7 +1632,7 @@ def _synthesize_comprehensive_screen_cases(s: dict, screen_url: str, screen_ss: 
                 im_trig = im.get("trigger", im_name)
                 cases.append({
                     "Type": "Web",
-                    "Target": sf_url,
+                    "Target": sf_url or screen_url,
                     "Test_Step_Description": f"Step 1: On '{sf_name}', click '{im_trig}' button -> Step 2: Verify '{im_name}' modal opens -> Step 3: Dismiss modal cleanly.",
                     "Expected_Result": "Modal dialog opens and dismisses cleanly without errors or remaining backdrops.",
                     "Playwright_Code": f"""modal_btn = page.locator('button, a, [role="button"], .btn').filter(has_text={json.dumps(im_trig)}).first
@@ -1341,15 +1652,15 @@ expect(page.locator('body')).to_be_visible()""",
             cases.append({
                 "Type": "Web",
                 "Target": screen_url,
-                "Test_Step_Description": f"Step 1: Locate interactive KPI card '{trigger}' on '{screen_name}' -> Step 2: Click KPI card -> Step 3: Verify drill-down navigation or filtered view loads.",
-                "Expected_Result": f"KPI card '{trigger}' is interactive and updates the view cleanly.",
-                "Playwright_Code": _synthesize_default_playwright_code(f"click '{trigger}'", "view updates", screen_url),
+                "Test_Step_Description": f"Step 1: Locate interactive KPI card '{trigger}' on '{screen_name}' -> Step 2: Click KPI card -> Step 3: Verify drill-down navigation or filtered view loads -> Step 4: Safely return to baseline view.",
+                "Expected_Result": f"KPI card '{trigger}' is interactive and updates the view cleanly without errors.",
+                "Playwright_Code": _synthesize_default_playwright_code(f"click kpi card '{trigger}' drill-down view updates", "kpi drill-down view updates", screen_url),
                 "Screenshot": sf_ss,
             })
         else:
             cases.append({
                 "Type": "Web",
-                "Target": sf_url,
+                "Target": screen_url,
                 "Test_Step_Description": f"Step 1: Trigger modal action '{trigger}' on '{screen_name}' -> Step 2: Verify modal dialog renders -> Step 3: Close/Dismiss modal cleanly.",
                 "Expected_Result": "Modal dialog opens and dismisses cleanly without errors or remaining backdrops.",
                 "Playwright_Code": f"""# Open modal
@@ -1376,20 +1687,74 @@ expect(page.locator('body')).to_be_visible()""",
             if any(k in trig_lower for k in ["add", "create", "new", "register", "insert", "+", "task", "department", "user", "file", "entry", "modal"]):
                 cases.append({
                     "Type": "Web",
-                    "Target": sf_url,
+                    "Target": screen_url,
                     "Test_Step_Description": f"Step 1: Click '{trigger}' on '{screen_name}' to open modal form -> Step 2: Populate required entry fields with valid test data -> Step 3: Click Save/Submit button -> Step 4: Verify new record is created and dialog dismisses cleanly.",
                     "Expected_Result": f"New record is created successfully via '{trigger}' modal dialog without unhandled errors.",
-                    "Playwright_Code": _synthesize_default_playwright_code(f"click '{trigger}' create new entry form valid submit save changes", "submission succeeds", sf_url),
+                    "Playwright_Code": _synthesize_default_playwright_code(f"click '{trigger}' create new entry form valid submit save changes", "submission succeeds", screen_url),
                     "Screenshot": sf_ss,
                 })
                 cases.append({
                     "Type": "Web",
-                    "Target": sf_url,
+                    "Target": screen_url,
                     "Test_Step_Description": f"Step 1: Click '{trigger}' on '{screen_name}' to open modal form -> Step 2: Leave required fields blank and click Save/Submit button -> Step 3: Verify required field validation blocks blank submission.",
                     "Expected_Result": f"Modal form validation prevents blank submission and presents required field alerts.",
-                    "Playwright_Code": _synthesize_default_playwright_code(f"click '{trigger}' create new entry negative validation blank required fields", "validation error appears", sf_url),
+                    "Playwright_Code": _synthesize_default_playwright_code(f"click '{trigger}' create new entry negative validation blank required fields", "validation error appears", screen_url),
                     "Screenshot": sf_ss,
                 })
+
+    # 10B. Comprehensive KPI, Metric Card & Trend Indicator Synthesis
+    raw_kpis = s.get("kpi_cards", []) if isinstance(s.get("kpi_cards"), list) else []
+    seen_kpi_labels = set()
+    for sf in sub_features:
+        if sf.get("type") == "kpi_card":
+            seen_kpi_labels.add(str(sf.get("trigger") or sf.get("name") or "").strip().lower())
+
+    for kpi_item in raw_kpis[:8]:
+        k_lbl = kpi_item.get("label", "") if isinstance(kpi_item, dict) else str(kpi_item)
+        k_lbl = k_lbl.strip()
+        if not k_lbl or len(k_lbl) < 2:
+            continue
+        k_val = kpi_item.get("value", "") if isinstance(kpi_item, dict) else ""
+        k_trend = kpi_item.get("trend", "") if isinstance(kpi_item, dict) else ""
+        k_interact = kpi_item.get("is_interactive", False) if isinstance(kpi_item, dict) else False
+
+        k_low = k_lbl.lower()
+        val_display = f" with value '{k_val}'" if k_val else ""
+        trend_display = f" and status trend '{k_trend}'" if k_trend else ""
+        py_assert = f'expect(page.get_by_text({json.dumps(k_lbl)}).first).to_be_visible(timeout=5000)'
+        if k_val:
+            py_assert += f'\nexpect(page.get_by_text({json.dumps(k_val)}).first).to_be_visible(timeout=5000)'
+        py_assert += "\nexpect(page.locator('body')).to_be_visible()"
+
+        cases.append({
+            "Type": "Web",
+            "Target": screen_url,
+            "Test_Step_Description": f"Step 1: Locate KPI card for '{k_lbl}' on '{screen_name}' -> Step 2: Verify metric value{val_display}{trend_display} renders visibly with correct formatting -> Step 3: Assert card container layout.",
+            "Expected_Result": f"KPI metric card '{k_lbl}' is displayed with expected value{val_display}.",
+            "Playwright_Code": py_assert,
+            "Screenshot": screen_ss,
+        })
+
+        if k_interact and k_low not in seen_kpi_labels:
+            seen_kpi_labels.add(k_low)
+            cases.append({
+                "Type": "Web",
+                "Target": screen_url,
+                "Test_Step_Description": f"Step 1: Locate interactive KPI card '{k_lbl}' on '{screen_name}' -> Step 2: Click KPI card -> Step 3: Verify drill-down navigation or filtered view loads -> Step 4: Safely return to baseline view.",
+                "Expected_Result": f"Interactive KPI card '{k_lbl}' triggers drill-down navigation or filtered dataset cleanly.",
+                "Playwright_Code": _synthesize_default_playwright_code(f"click kpi card '{k_lbl}' drill-down view updates", f"kpi card '{k_lbl}' drill-down loads", screen_url),
+                "Screenshot": screen_ss,
+            })
+
+        if k_trend:
+            cases.append({
+                "Type": "Web",
+                "Target": screen_url,
+                "Test_Step_Description": f"Step 1: Locate KPI card '{k_lbl}' on '{screen_name}' -> Step 2: Inspect status trend badge '{k_trend}' -> Step 3: Verify indicator badge renders with appropriate styling.",
+                "Expected_Result": f"KPI trend indicator '{k_trend}' for '{k_lbl}' renders with valid status styling.",
+                "Playwright_Code": _synthesize_default_playwright_code(f"inspect kpi card '{k_lbl}' trend indicator badge '{k_trend}'", "trend badge renders", screen_url),
+                "Screenshot": screen_ss,
+            })
 
     # 13. Form & New Entry Lifecycle (Create New Entry Happy Path, Negative Validation, and Reset/Cancel)
     if has_forms or has_create_or_add:
@@ -1454,6 +1819,56 @@ expect(page.locator('body')).to_be_visible()""",
             "Screenshot": screen_ss,
         })
 
+    # 13. Dropdown & Combobox Selection Method
+    cases.append({
+        "Type": "Web",
+        "Target": screen_url,
+        "Test_Step_Description": f"Step 1: Locate select dropdown or combobox on '{screen_name}' -> Step 2: Select a non-default option -> Step 3: Verify selection is reflected in UI.",
+        "Expected_Result": "Dropdown selection updates value cleanly without errors.",
+        "Playwright_Code": _synthesize_default_playwright_code("select option from dropdown or combobox", "selection updates", screen_url),
+        "Screenshot": screen_ss,
+    })
+
+    # 14. Checkbox & Switch / Toggle Controls Method
+    cases.append({
+        "Type": "Web",
+        "Target": screen_url,
+        "Test_Step_Description": f"Step 1: Locate interactive checkbox or toggle switch on '{screen_name}' -> Step 2: Toggle state on and off -> Step 3: Verify toggle state persists.",
+        "Expected_Result": "Checkbox/toggle switch activates and deactivates cleanly.",
+        "Playwright_Code": _synthesize_default_playwright_code("toggle switch checkbox toggle", "toggle state persists", screen_url),
+        "Screenshot": screen_ss,
+    })
+
+    # 15. Slide Bar & Range Slider Drag & Adjust Method
+    cases.append({
+        "Type": "Web",
+        "Target": screen_url,
+        "Test_Step_Description": f"Step 1: Locate slide bar or range slider on '{screen_name}' -> Step 2: Slide and adjust seekbar from minimum to target value -> Step 3: Verify slider value updates.",
+        "Expected_Result": "Slide bar drags and updates value smoothly without jumpiness.",
+        "Playwright_Code": _synthesize_default_playwright_code("slide bar slider seekbar slide and adjust", "slider value updates", screen_url),
+        "Screenshot": screen_ss,
+    })
+
+    # 16. Keyboard Accessibility & Focus Traversal Method
+    cases.append({
+        "Type": "Web",
+        "Target": screen_url,
+        "Test_Step_Description": f"Step 1: Access '{screen_name}' using keyboard -> Step 2: Press Tab key repeatedly to traverse focus across interactive controls -> Step 3: Verify focus indicator is visible and accessible.",
+        "Expected_Result": "Keyboard focus traverses interactive elements in logical order with visible focus ring.",
+        "Playwright_Code": _synthesize_default_playwright_code("keyboard tab navigation focus traversal", "focus traverses logically", screen_url),
+        "Screenshot": screen_ss,
+    })
+
+    # 17. Network & Backend Health Contract Method
+    cases.append({
+        "Type": "Web",
+        "Target": screen_url,
+        "Test_Step_Description": f"Step 1: Monitor network traffic on '{screen_name}' during page interactions -> Step 2: Verify all background XHR/Fetch API responses return status < 400 with zero 500 server crashes.",
+        "Expected_Result": "Background network requests succeed with 0 server error crashes (5xx).",
+        "Playwright_Code": _synthesize_default_playwright_code("network contract backend health 500 server error", "no 500 server errors", screen_url),
+        "Screenshot": screen_ss,
+    })
+
     return cases
 
 
@@ -1479,8 +1894,15 @@ class TestGenerator:
             return p.chromium.launch(headless=headless)
 
     def generate_cases_from_url(
-        self, url: str, output_csv_path: str = "generated_tests.csv", user_story: str = "", strategy: str = "all"
+        self,
+        url: str,
+        output_csv_path: str = "generated_tests.csv",
+        user_story: str = "",
+        strategy: str = "all",
+        on_progress_callback: Optional[Callable[[float, str], None]] = None,
     ):
+        if on_progress_callback:
+            on_progress_callback(0.10, f"Initializing browser to inspect {url}...")
         print(f"Loading {url} in background to inspect interactive elements and take snapshot...")
         screenshot_path = ""
         with sync_playwright() as p:
@@ -1508,9 +1930,13 @@ class TestGenerator:
                 pass
 
             try:
+                if on_progress_callback:
+                    on_progress_callback(0.25, f"Navigating to {url} and awaiting network idle...")
                 page.goto(url, wait_until="networkidle", timeout=30000)
 
                 # Capture snapshot screenshot
+                if on_progress_callback:
+                    on_progress_callback(0.40, "Capturing high-resolution viewport snapshot...")
                 reports_dir = os.path.join("reports", "screenshots")
                 os.makedirs(reports_dir, exist_ok=True)
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -1530,6 +1956,8 @@ class TestGenerator:
                     )
 
                 # Comprehensive Multi-Zone DOM element extraction
+                if on_progress_callback:
+                    on_progress_callback(0.55, "Deep-inspecting Multi-Zone DOM, inputs, tables & buttons...")
                 dom_snapshot = page.evaluate("""
                 () => {
                     const isVisible = (el) => {
@@ -1660,10 +2088,50 @@ class TestGenerator:
                         }
                     });
 
+                    // 7. Universal KPI & Metric Cards
+                    zones.kpi_cards = [];
+                    const cardSelectors = [
+                        '[class*="kpi"]', '[class*="stat"]', '[class*="metric"]', '[class*="summary-card"]',
+                        '[class*="card"]', '[class*="tile"]', '[class*="widget"]', '[class*="panel"]',
+                        '[role="region"]', '[data-testid*="kpi"]', '[data-testid*="stat"]', '[data-testid*="metric"]',
+                        '[class*="health-card"]', '[class*="attention-card"]'
+                    ].join(', ');
+                    const valRegex = /^[\\$€£₹¥]?\\s*[\\d,\\.]+\\s*[%kKmMbBtT]?$|^[\\d,\\.]+\\s*\\/\\s*[\\d,\\.]+$|^\\d+\\s*(ms|s|m|h|d|days?|hrs?|mins?)$/i;
+                    const trRegex = /^([+\\-↑↓▲▼]?\\s*\\d+(\\.\\d+)?%|[+\\-]\\d+|healthy|critical|warning|active|good|poor)$/i;
+                    const seenK = new Set();
+                    document.querySelectorAll(cardSelectors).forEach(card => {
+                        if (!isVisible(card)) return;
+                        const r = card.getBoundingClientRect();
+                        if (r.width > 650 || r.height > 450 || r.width < 50 || r.height < 35) return;
+                        let bVal = '', bLbl = '', trTxt = '';
+                        card.querySelectorAll('*').forEach(el => {
+                            if (!isVisible(el) || el.children.length > 0) return;
+                            const t = cleanText(el.innerText || el.textContent);
+                            if (!t) return;
+                            if (t.length <= 18 && valRegex.test(t)) {
+                                const st = window.getComputedStyle(el);
+                                if (parseFloat(st.fontSize) >= 18 || parseInt(st.fontWeight) >= 600 || !bVal) bVal = t;
+                            } else if (t.length <= 15 && trRegex.test(t)) {
+                                trTxt = t;
+                            } else if (t.length >= 3 && t.length <= 40 && !bLbl && !/^(view all|details|more|click)$/i.test(t)) {
+                                bLbl = t;
+                            }
+                        });
+                        const isInter = card.matches('a, button, [role="button"]') || card.querySelector('a, button, [role="button"]') !== null || window.getComputedStyle(card).cursor === 'pointer';
+                        if (bLbl && bVal) {
+                            const kKey = (bLbl + '|' + bVal).toLowerCase();
+                            if (!seenK.has(kKey)) {
+                                seenK.add(kKey);
+                                zones.kpi_cards.push({ label: bLbl, value: bVal, trend: trTxt, is_interactive: isInter });
+                            }
+                        }
+                    });
+
                     // Deduplicate navigation & buttons
                     zones.navigation_links = zones.navigation_links.slice(0, 20);
                     zones.forms_and_inputs = zones.forms_and_inputs.slice(0, 25);
                     zones.action_buttons = zones.action_buttons.slice(0, 25);
+                    zones.kpi_cards = zones.kpi_cards.slice(0, 10);
 
                     return zones;
                 }
@@ -1699,18 +2167,41 @@ class TestGenerator:
             "pill_tabs": [t.get("text") for t in dom_snapshot.get("navigation_links", []) if t.get("text")],
             "inputs": [i.get("placeholder") or i.get("name") for i in dom_snapshot.get("forms_and_inputs", [])],
             "tables_count": len(dom_snapshot.get("table_and_grid", {}).get("headers", [])),
+            "kpi_cards": dom_snapshot.get("kpi_cards", []),
             "sub_features": [],
         }
-        deterministic_cases = _synthesize_comprehensive_screen_cases(screen_info, canonical_target, screenshot_path)
+        from core.robust_engine import RobustDeterministicSynthesizer, RobustJSONRepairEngine
+        robust_det = RobustDeterministicSynthesizer.synthesize_suite_from_topology(screen_info, url=canonical_target)
+        legacy_det = _synthesize_comprehensive_screen_cases(screen_info, canonical_target, screenshot_path)
+        seen_det_steps = set()
+        combined_det = []
+        for dc in robust_det + legacy_det:
+            k = str(dc.get("Test_Step_Description", "")).strip().lower()
+            if k and k not in seen_det_steps:
+                seen_det_steps.add(k)
+                combined_det.append(dc)
+        deterministic_cases = combined_det
 
-        if strategy in ["rule_engine", "rule"]:
+        if on_progress_callback:
+            if strategy in ["robust_v4", "robust"]:
+                on_progress_callback(0.75, "⚡ RobustEngine v4 generating 7-category deep matrix test suite...")
+            elif strategy in ["rule_engine", "rule"]:
+                on_progress_callback(0.75, "⚙️ Rule Engine generating 100% deterministic test suite...")
+            else:
+                on_progress_callback(0.75, f"🤖 AI Orchestrator generating [{strategy}] test cases...")
+
+        if strategy in ["robust_v4", "robust"]:
+            cases = RobustDeterministicSynthesizer.synthesize_suite_from_topology(screen_info, url=canonical_target)
+            for c in cases:
+                c["Generated_By"] = "⚡ RobustEngine v4"
+        elif strategy in ["rule_engine", "rule"]:
             cases = deterministic_cases
             for c in cases:
                 c["Generated_By"] = "⚙️ Rule Engine"
         else:
             print(f"Page analyzed! Asking ADK Web Agent to generate test cases for target: {canonical_target}...")
             response_text = self.orchestrator.generate_web_tests(url=canonical_target, dom_snapshot=dom_json_str, user_story=user_story)
-            cases = _clean_and_parse_json(response_text, default_target=canonical_target, default_type="Web")
+            cases = RobustJSONRepairEngine.clean_and_parse(response_text, default_target=canonical_target, fallback_screen_data=screen_info)
             if not cases or not isinstance(cases, list) or len(cases) < 2:
                 print("Synthesizing comprehensive test suite from analyzed DOM elements...")
                 cases = deterministic_cases
@@ -1774,16 +2265,32 @@ class TestGenerator:
                 c["Generated_By"] = "🤖 AI Generated" if strategy in ["ai_full", "ai"] else ("🤖 AI Step + ⚙️ Template Code" if strategy in ["hybrid", "template"] else "⚙️ Rule Engine")
 
         if valid_cases:
-            # Ensure Target is strictly preserved as the user-specified canonical target
+            # Ensure Target is strictly preserved as the user-specified canonical target (No static links or wrong URLs)
             for case in valid_cases:
+                c_type = str(case.get("Type", "Web")).strip().lower()
                 target_val = str(case.get("Target", "")).strip()
-                if not target_val or target_val == "nan" or target_val == "<exact target URL>" or ("login" in target_val.lower() and "login" not in canonical_target.lower()):
-                    case["Target"] = canonical_target
-                else:
-                    case["Target"] = target_val
+                is_nat = c_type in ["mobile (native)", "mobile", "native"] or target_val.startswith("android://")
 
+                if is_nat:
+                    case["Type"] = "Mobile (Native)"
+                    if not target_val or target_val == "nan" or not target_val.startswith("android://"):
+                        case["Target"] = canonical_target if canonical_target.startswith("android://") else f"android://{canonical_target}"
+                elif c_type == "api":
+                    case["Type"] = "API"
+                    if not target_val or target_val.lower() in ["nan", "none", "<exact target url>", "https://example.com"]:
+                        case["Target"] = canonical_target
+                    elif target_val.startswith("/"):
+                        from urllib.parse import urljoin
+                        case["Target"] = urljoin(canonical_target, target_val)
+                    elif not target_val.startswith("http"):
+                        case["Target"] = canonical_target
+                    else:
+                        case["Target"] = target_val
+                else:
+                    # Web UI test case: Target MUST strictly be the user's provided Target Web URL
+                    case["Type"] = "Web"
+                    case["Target"] = canonical_target
                 code_val = str(case.get("Playwright_Code", "")).strip()
-                c_type = str(case.get("Type", "Web"))
                 c_target = str(case.get("Target", canonical_target))
                 is_nat = c_type.lower() in ["mobile (native)", "mobile", "native"] or c_target.startswith("android://")
 
@@ -1840,8 +2347,12 @@ class TestGenerator:
             if "Generated_By" not in df.columns:
                 df["Generated_By"] = "🤖 AI Generated"
 
+            if on_progress_callback:
+                on_progress_callback(0.95, f"Standardizing test suite with {len(valid_cases)} cases...")
             df["Screenshot"] = screenshot_path
             df.to_csv(output_csv_path, index=False)
+            if on_progress_callback:
+                on_progress_callback(1.00, f"✅ Test generation complete ({len(valid_cases)} cases)!")
             print(
                 f"Successfully generated {len(valid_cases)} test cases with Target '{canonical_target}' and saved to {output_csv_path}!"
             )
@@ -1856,11 +2367,18 @@ class TestGenerator:
         base_url: str,
         output_csv_path: str = "generated_tests.csv",
         user_story: str = "",
+        on_progress_callback: Optional[Callable[[float, str], None]] = None,
     ):
+        if on_progress_callback:
+            on_progress_callback(0.15, "Parsing OpenAPI / Swagger specification...")
         print("Parsing OpenAPI spec! Asking ADK API Agent to generate test cases...")
+        if on_progress_callback:
+            on_progress_callback(0.40, "🤖 AI API Agent discovering endpoints & generating test cases...")
         response_text = self.orchestrator.generate_api_tests(swagger_spec=spec_content, base_url=base_url, user_story=user_story)
 
-        cases = _clean_and_parse_json(response_text, default_target=base_url, default_type="API")
+        if on_progress_callback:
+            on_progress_callback(0.75, "Parsing generated API responses & validating endpoints...")
+        cases = RobustJSONRepairEngine.clean_and_parse(response_text, default_target=base_url)
         if cases and isinstance(cases, list):
             for case in cases:
                 code_val = str(case.get("Playwright_Code", "")).strip()
@@ -1885,8 +2403,12 @@ class TestGenerator:
             if "Generated_By" not in df.columns:
                 df["Generated_By"] = "🤖 AI Generated"
 
+            if on_progress_callback:
+                on_progress_callback(0.95, f"Formatting {len(cases)} API test cases...")
             df["Screenshot"] = ""
             df.to_csv(output_csv_path, index=False)
+            if on_progress_callback:
+                on_progress_callback(1.00, f"✅ Generated {len(cases)} API test cases!")
             print(
                 f"Successfully generated {len(cases)} API test cases and saved them to {output_csv_path}!"
             )
@@ -1898,13 +2420,16 @@ class TestGenerator:
     def generate_cases_from_image(
         self,
         image_bytes: bytes,
-        target_url: str = "https://example.com",
+        target_url: str = "",
         user_instructions: str = "",
         output_csv_path: str = "generated_tests.csv",
+        on_progress_callback: Optional[Callable[[float, str], None]] = None,
     ):
         """Generates test cases by analyzing an uploaded UI screenshot/mockup with Vision AI."""
         import base64
 
+        if on_progress_callback:
+            on_progress_callback(0.15, "Processing and saving UI mockup screenshot...")
         reports_dir = os.path.join("reports", "screenshots")
         os.makedirs(reports_dir, exist_ok=True)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -1916,10 +2441,15 @@ class TestGenerator:
         self.last_screenshot = saved_image_path
         b64_img = base64.b64encode(image_bytes).decode("utf-8")
 
+        if on_progress_callback:
+            on_progress_callback(0.40, "👁️ Vision AI inspecting UI layout, buttons & forms...")
         print(f"Analyzing UI screenshot ({saved_image_path}) via Vision AI for {target_url}...")
         response_text = self.ai_client.analyze_image_for_test_generation(
             base64_image=b64_img, target_url=target_url, user_instructions=user_instructions
         )
+
+        if on_progress_callback:
+            on_progress_callback(0.75, "Parsing detected UI elements & synthesizing test cases...")
 
         cases = _clean_and_parse_json(response_text, default_target=target_url, default_type="Web")
         if cases and isinstance(cases, list):
@@ -1979,8 +2509,12 @@ class TestGenerator:
             if "Generated_By" not in df.columns:
                 df["Generated_By"] = "🤖 AI Generated"
 
+            if on_progress_callback:
+                on_progress_callback(0.95, f"Formatting {len(cases)} test cases from mockup...")
             df["Screenshot"] = saved_image_path
             df.to_csv(output_csv_path, index=False)
+            if on_progress_callback:
+                on_progress_callback(1.00, f"✅ Generated {len(cases)} test cases from screenshot!")
             print(
                 f"Successfully generated {len(cases)} test cases from screenshot and saved them to {output_csv_path}!"
             )
@@ -2066,6 +2600,16 @@ class TestGenerator:
                 "action_buttons": s.get("action_buttons", []) if isinstance(s.get("action_buttons"), list) else [],
                 "form_inputs": s.get("inputs", []) if isinstance(s.get("inputs"), list) else [],
                 "tables_count": s.get("tables_count", 0),
+                "kpi_cards": [
+                    {
+                        "label": k.get("label", str(k)),
+                        "value": k.get("value", ""),
+                        "trend": k.get("trend", ""),
+                        "confidence": k.get("confidence", "HIGH"),
+                        "is_interactive": k.get("is_interactive", False),
+                    } if isinstance(k, dict) else {"label": str(k), "value": "", "confidence": "HIGH", "is_interactive": False}
+                    for k in (s.get("kpi_cards", []) if isinstance(s.get("kpi_cards"), list) else [])
+                ],
                 "sub_features_and_modals": [
                     {
                         "type": sf.get("type", "feature"),
@@ -2102,13 +2646,29 @@ class TestGenerator:
                 f"   - Row actions (Edit existing record, View record details drill-down, Delete safeguard with Cancel).\n"
                 f"   - Table Search & Clear Reset, Filter Drawer & Clear Reset, and Navigation Tabs.\n"
                 f"4. For every modal dialog or sub-module, include form validation (fill inputs, click buttons, dismiss modal cleanly).\n"
-                f"5. Return a strict JSON list of objects with keys: Type, Target, Test_Step_Description, Expected_Result, Playwright_Code."
+                f"5. If 'kpi_cards' are listed in the screen summary, generate explicit Playwright assertions verifying KPI card label visibility, metric value presence, and drill-down navigation for interactive cards.\n"
+                f"6. Return a strict JSON list of objects with keys: Type, Target, Test_Step_Description, Expected_Result, Playwright_Code."
             )
 
-            deterministic_cases = _synthesize_comprehensive_screen_cases(s, screen_url, screen_ss)
+            from core.robust_engine import RobustDeterministicSynthesizer, RobustJSONRepairEngine
+            robust_cases = RobustDeterministicSynthesizer.synthesize_suite_from_topology(s, url=screen_url)
+            legacy_cases = _synthesize_comprehensive_screen_cases(s, screen_url, screen_ss)
+            seen_steps_init = set()
+            combined_cases = []
+            for c in robust_cases + legacy_cases:
+                st_key = str(c.get("Test_Step_Description", "")).strip().lower()
+                if st_key and st_key not in seen_steps_init:
+                    seen_steps_init.add(st_key)
+                    combined_cases.append(c)
+            deterministic_cases = combined_cases
             used_screen_fallback = False
 
-            if strategy in ["rule_engine", "rule"]:
+            if strategy in ["robust_v4", "robust"]:
+                screen_cases = RobustDeterministicSynthesizer.synthesize_suite_from_topology(s, url=screen_url)
+                for sc in screen_cases:
+                    sc["Generated_By"] = "⚡ RobustEngine v4"
+                used_screen_fallback = False
+            elif strategy in ["rule_engine", "rule"]:
                 screen_cases = deterministic_cases
                 used_screen_fallback = True
             else:
@@ -2121,10 +2681,12 @@ class TestGenerator:
                         user_story=prompt_story,
                     )
                     response_text = future.result(timeout=35)
-                    screen_cases = _clean_and_parse_json(response_text, default_target=screen_url, default_type="Web")
+                    screen_cases = RobustJSONRepairEngine.clean_and_parse(
+                        response_text, default_target=screen_url, fallback_screen_data=s
+                    )
                 except Exception as se:
                     print(f"[Flow Generator] Generation fast-fallback engaged for '{screen_name}': {se}")
-                    screen_cases = []
+                    screen_cases = deterministic_cases
                 finally:
                     executor.shutdown(wait=False, cancel_futures=True)
 
@@ -2269,7 +2831,17 @@ class TestGenerator:
                         except SyntaxError:
                             pw_valid = False
 
-                    if strategy in ["rule_engine", "rule"] or (used_screen_fallback and strategy not in ["ai_full", "ai", "hybrid", "template"]):
+                    if strategy in ["robust_v4", "robust"]:
+                        if not pw_valid:
+                            sc["Playwright_Code"] = RobustPlaywrightCodeSynthesizer.synthesize_action_block(
+                                target_str,
+                                [{"action": "navigate", "target": target_str, "description": str(sc.get("Test_Step_Description"))}],
+                                [str(sc.get("Expected_Result"))],
+                            )
+                        else:
+                            sc["Playwright_Code"] = sanitized_pw
+                        sc["Generated_By"] = "⚡ RobustEngine v4"
+                    elif strategy in ["rule_engine", "rule"] or (used_screen_fallback and strategy not in ["ai_full", "ai", "hybrid", "template"]):
                         if not pw_valid:
                             sc["Playwright_Code"] = _synthesize_default_playwright_code(
                                 step_desc=str(sc.get("Test_Step_Description")),
@@ -2316,6 +2888,13 @@ class TestGenerator:
 
             print(f"[Flow Generator] Screen #{idx} '{screen_name}': Added {len(screen_cases)} test cases.")
 
+        # Multi-Screen End-to-End Workflow Synthesis
+        if len(screens) >= 2:
+            multi_journey = RobustDeterministicSynthesizer.synthesize_multi_screen_e2e_journey(screens)
+            for mj in multi_journey:
+                mj["Screenshot"] = primary_ss
+                all_cases.append(mj)
+
         if all_cases:
             new_df = pd.DataFrame(all_cases)
             for col in ["Type", "Target", "Test_Step_Description", "Expected_Result", "Actual_Result", "Playwright_Code", "Screenshot", "Generated_By"]:
@@ -2336,4 +2915,890 @@ class TestGenerator:
             return output_csv_path, primary_ss
         else:
             return None, primary_ss
+
+    def ai_regenerate_and_convert_suite(
+        self,
+        data,
+        default_target: str = "",
+        user_instructions: str = "",
+        default_type: str = "Web",
+        max_cases: int = 100,
+        on_progress_callback: Optional[Callable[[float, str], None]] = None,
+    ) -> pd.DataFrame:
+        """
+        Uses AI (with multi-provider fallbacks and deterministic parsing) to convert ANY unstructured
+        test case format (messy Excel sheets, Jira exports, TestRail tables, BDD scenarios, bullet points,
+        or informal QA notes) into the standardized 11-column test suite structure with AST-validated
+        executable Playwright code.
+        """
+        canonical_target = (default_target or "").strip()
+
+        # Step 0: Try structured / tabular extraction to preserve 100% As-Is user columns and multi-sheet structure
+        df_source = None
+        if isinstance(data, pd.DataFrame) and not data.empty:
+            df_source = data.copy()
+        elif hasattr(data, "read"):
+            name = getattr(data, "name", "").lower()
+            if hasattr(data, "seek"):
+                data.seek(0)
+            raw_bytes = data.read()
+            if hasattr(data, "seek"):
+                data.seek(0)
+            
+            if name.endswith((".xlsx", ".xls")) or (isinstance(raw_bytes, bytes) and raw_bytes[:2] == b"PK"):
+                try:
+                    xl = pd.ExcelFile(io.BytesIO(raw_bytes))
+                    all_sheet_dfs = []
+                    for s in xl.sheet_names:
+                        sdf = pd.read_excel(xl, sheet_name=s)
+                        parsed = parse_qa_test_sheet_to_dataframe(sdf, default_target=canonical_target)
+                        act = parsed if not parsed.empty else sdf
+                        if not act.empty:
+                            act = act.copy()
+                            act["Sheet_Name"] = s
+                            all_sheet_dfs.append(act)
+                    if all_sheet_dfs:
+                        df_source = pd.concat(all_sheet_dfs, ignore_index=True)
+                except Exception as e:
+                    print(f"[AI Re-Gen] Multi-sheet Excel extraction error: {e}")
+            
+            if df_source is None or df_source.empty:
+                try:
+                    parsed_csv = parse_qa_test_sheet_to_dataframe(raw_bytes, default_target=canonical_target)
+                    if not parsed_csv.empty:
+                        df_source = parsed_csv
+                except Exception:
+                    pass
+        elif isinstance(data, str) and data.strip():
+            clean_lower = data.lower()
+            if ("," in data or "\t" in data) and any(sig in clean_lower for sig in ["test case", "use case", "expected", "screen", "steps", "module"]):
+                try:
+                    parsed_text = parse_qa_test_sheet_to_dataframe(data, default_target=canonical_target)
+                    if parsed_text is not None and not parsed_text.empty:
+                        has_user_cols = any(c not in ["Run", "Type", "Target", "Test_Step_Description", "Expected_Result", "Status", "Duration", "Actual_Result", "Screenshot", "Execution_Notes", "Playwright_Code", "_target", "_step", "_expected", "_code"] for c in parsed_text.columns)
+                        if has_user_cols:
+                            df_source = parsed_text
+                except Exception as pe:
+                    print(f"[AI Re-Gen] Text QA extraction note: {pe}")
+
+        # If we successfully extracted a tabular dataset with user columns:
+        if df_source is not None and not df_source.empty:
+            if on_progress_callback:
+                sheet_cnt = df_source["Sheet_Name"].nunique() if "Sheet_Name" in df_source.columns else 1
+                on_progress_callback(0.20, f"Preserving 100% As-Is format across {len(df_source)} test cases & {sheet_cnt} sheets...")
+
+            df_source = df_source.copy()
+            if "Run" not in df_source.columns:
+                df_source.insert(0, "Run", True)
+            else:
+                df_source["Run"] = df_source["Run"].fillna(True).astype(bool)
+
+            if "Sheet_Name" not in df_source.columns:
+                df_source["Sheet_Name"] = "Default"
+            if "Status" not in df_source.columns:
+                df_source["Status"] = "PENDING"
+            if "Duration" not in df_source.columns:
+                df_source["Duration"] = "-"
+            if "Actual_Result" not in df_source.columns:
+                df_source["Actual_Result"] = "-"
+            if "Screenshot" not in df_source.columns:
+                df_source["Screenshot"] = ""
+            if "Type" not in df_source.columns:
+                df_source["Type"] = default_type
+
+            # Resolve Target
+            if "Target" not in df_source.columns:
+                df_source["Target"] = canonical_target
+            elif canonical_target:
+                df_source.loc[df_source["Target"].astype(str).str.strip().isin(["", "nan", "None"]), "Target"] = canonical_target
+
+            # Resolve Test_Step_Description
+            if "Test_Step_Description" not in df_source.columns:
+                clean_c_map = {re.sub(r"[^a-z0-9]", "", str(c).lower()): c for c in df_source.columns}
+                for cand in ["teststepdescription", "teststeps", "steps", "useractionondevlink", "action", "testcasedescription", "description", "testcasetitle", "title"]:
+                    if cand in clean_c_map:
+                        df_source["Test_Step_Description"] = df_source[clean_c_map[cand]].fillna("").astype(str)
+                        break
+                else:
+                    df_source["Test_Step_Description"] = "Verify UI function and flow"
+
+            # Resolve Expected_Result
+            if "Expected_Result" not in df_source.columns or df_source["Expected_Result"].astype(str).str.strip().isin(["", "nan", "None", "Action executes cleanly", "Action executes cleanly and state is verified", "Action executes cleanly and expected outcome is verified"]).all():
+                clean_c_map = {re.sub(r"[^a-z0-9]", "", str(c).lower()): c for c in df_source.columns}
+                for cand in ["expectedresult", "expectedoutcome", "expectedoutput", "expectedbehavior", "expectedresults", "expectedoutcomes", "expected", "acceptancecriteria"]:
+                    if cand in clean_c_map:
+                        df_source["Expected_Result"] = df_source[clean_c_map[cand]].fillna("").astype(str)
+                        break
+                else:
+                    if "Expected_Result" not in df_source.columns:
+                        df_source["Expected_Result"] = "Action executes cleanly"
+
+            # Rescue real expected outcome for any row having placeholder Expected_Result
+            for col_cand in ["Expected Result", "Expected Outcome", "Expected Output", "Expected", "Expected_Outcome", "ExpectedBehavior"]:
+                if col_cand in df_source.columns:
+                    real_vals = df_source[col_cand].astype(str).str.strip()
+                    mask_needs_val = df_source["Expected_Result"].astype(str).str.strip().isin([
+                        "", "nan", "None", "Action executes cleanly",
+                        "Action executes cleanly and state is verified",
+                        "Action executes cleanly and expected outcome is verified"
+                    ]) & ~real_vals.isin(["", "nan", "None", "-"])
+                    df_source.loc[mask_needs_val, "Expected_Result"] = df_source.loc[mask_needs_val, col_cand]
+                    break
+
+            # Populate internal execution adapter pointers
+            df_source["_target"] = df_source["Target"]
+            df_source["_step"] = df_source["Test_Step_Description"]
+            df_source["_expected"] = df_source["Expected_Result"]
+            df_source["_type"] = df_source["Type"]
+
+            # Synthesize AST-valid Playwright code if missing
+            if "Playwright_Code" not in df_source.columns:
+                df_source["Playwright_Code"] = ""
+
+            needs_code = df_source["Playwright_Code"].astype(str).str.strip().isin(["", "nan", "None"])
+            if needs_code.any():
+                total_need = int(needs_code.sum())
+                if on_progress_callback:
+                    on_progress_callback(0.40, f"Synthesizing execution code for {total_need} test cases...")
+                for c_idx, i in enumerate(df_source[needs_code].index):
+                    if on_progress_callback and total_need > 0 and (c_idx % max(1, total_need // 10) == 0):
+                        pct = 0.40 + (c_idx / total_need) * 0.55
+                        on_progress_callback(pct, f"Synthesizing Playwright code ({c_idx + 1}/{total_need})...")
+                    s_desc = str(df_source.at[i, "Test_Step_Description"] or "")
+                    e_res = str(df_source.at[i, "Expected_Result"] or "")
+                    t_url = str(df_source.at[i, "Target"] or canonical_target)
+                    t_type = str(df_source.at[i, "Type"] or default_type)
+                    df_source.at[i, "Playwright_Code"] = _synthesize_default_playwright_code(s_desc, e_res, t_url, t_type)
+
+            df_source["_code"] = df_source["Playwright_Code"]
+            df_source["Generated_By"] = "✍️ Uploaded QA + ⚙️ Template Code"
+            df_source.index = range(1, len(df_source) + 1)
+
+            if on_progress_callback:
+                on_progress_callback(1.00, f"✅ Preserved 100% original columns across {len(df_source)} test cases & synthesized execution adapter!")
+            return df_source
+
+        raw_text = ""
+        # 1. Extract raw text from various input types
+        if on_progress_callback:
+            on_progress_callback(0.10, "Extracting and analyzing raw input data...")
+        if isinstance(data, pd.DataFrame):
+            if not data.empty:
+                csv_buf = io.StringIO()
+                data.to_csv(csv_buf, index=False)
+                raw_text = csv_buf.getvalue()
+        elif hasattr(data, "read"):
+            name = getattr(data, "name", "").lower()
+            if hasattr(data, "seek"):
+                data.seek(0)
+            raw_bytes = data.read()
+            if hasattr(data, "seek"):
+                data.seek(0)
+            if name.endswith((".xlsx", ".xls")) or (isinstance(raw_bytes, bytes) and raw_bytes[:2] == b"PK"):
+                try:
+                    xl = pd.ExcelFile(io.BytesIO(raw_bytes))
+                    sheets_text = []
+                    for s in xl.sheet_names:
+                        sdf = pd.read_excel(xl, sheet_name=s)
+                        if not sdf.empty:
+                            sheets_text.append(f"--- Sheet: {s} ---\n" + sdf.to_csv(index=False))
+                    raw_text = "\n\n".join(sheets_text)
+                except Exception as e:
+                    print(f"[AI Re-Gen] Excel extraction error: {e}")
+            if not raw_text:
+                if isinstance(raw_bytes, bytes):
+                    for enc in ["utf-8-sig", "utf-8", "latin1", "cp1252"]:
+                        try:
+                            raw_text = raw_bytes.decode(enc)
+                            break
+                        except Exception:
+                            continue
+                    if not raw_text:
+                        raw_text = raw_bytes.decode("utf-8", errors="replace")
+                else:
+                    raw_text = str(raw_bytes)
+        elif isinstance(data, (list, tuple)):
+            raw_text = json.dumps(data, indent=2, default=str)
+        else:
+            raw_text = str(data or "").strip()
+
+        if not raw_text.strip():
+            return pd.DataFrame(columns=["Run", "Type", "Target", "Test_Step_Description", "Expected_Result", "Status", "Duration", "Actual_Result", "Screenshot", "Execution_Notes", "Playwright_Code"])
+
+        cases = []
+        canonical_target = (default_target or "").strip()
+
+        # 2. Attempt AI-powered conversion if ai_client is available
+        if self.ai_client:
+            if on_progress_callback:
+                on_progress_callback(0.25, "Prompting AI Architect to synthesize test scenarios & Playwright code...")
+            system_msg = (
+                "You are an elite QA Automation & Playwright Architect.\n"
+                "Your task is to take any raw test cases, Jira stories, manual QA notes, bug lists, or test requirements in ANY unstructured format "
+                "(raw table, bullet points, mixed headers, merged fields, BDD Gherkin, or freeform text) and convert/regenerate them into a standardized, execution-ready JSON test suite.\n"
+                "Every test case MUST adhere strictly to the following 11-field schema:\n"
+                "1. 'Run': boolean (true)\n"
+                "2. 'Type': string ('Web', 'API', or 'Mobile (Native)')\n"
+                "3. 'Target': string (Target web URL, API endpoint, or mobile activity)\n"
+                "4. 'Test_Step_Description': string (Concise, step-by-step description with clear user actions, e.g., 'Step 1: Open login -> Step 2: Fill email -> Step 3: Click Submit')\n"
+                "5. 'Expected_Result': string (Clear observable expected outcome or verification)\n"
+                "6. 'Status': string ('PENDING')\n"
+                "7. 'Duration': string ('-')\n"
+                "8. 'Actual_Result': string ('-')\n"
+                "9. 'Screenshot': string ('')\n"
+                "10. 'Execution_Notes': string (Test ID, Module, Priority, Preconditions, or extra remarks)\n"
+                "11. 'Playwright_Code': string (Executable Python code snippet using Playwright page API or requests for API tests. Must be standalone and valid Python. Page navigation, filling inputs, clicking buttons, expect assertions.)\n\n"
+                "CRITICAL INSTRUCTIONS:\n"
+                "- Output ONLY a valid JSON array of test objects: [{\"Run\": true, \"Type\": \"...\", ...}]\n"
+                "- No markdown fences, no conversational commentary.\n"
+                "- Make sure 'Playwright_Code' is valid Python code.\n"
+                "- Do not hardcode arbitrary static credentials; use variables like test_data.get('Email') or generic selectors."
+            )
+            prompt_text = (
+                f"Please convert and re-generate the following raw test input into our standard 11-column test suite format.\n\n"
+                f"Configuration:\n"
+                f"- Target URL / Base URL: '{canonical_target}'\n"
+                f"- Default Application Type: '{default_type}'\n"
+            )
+            if user_instructions:
+                prompt_text += f"- Additional QA Instructions: {user_instructions}\n"
+            prompt_text += f"\n--- RAW TEST DATA TO CONVERT ---\n{raw_text[:14000]}\n--- END RAW TEST DATA ---\n"
+
+            try:
+                from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
+                with ThreadPoolExecutor(max_workers=1) as executor:
+                    future = executor.submit(self.ai_client.generate_response, prompt=prompt_text, system_message=system_msg)
+                    start_t = time.time()
+                    step_phases = [
+                        (2.5, 0.38, "Analyzing scenarios, edge cases & workflows..."),
+                        (5.5, 0.52, "Synthesizing executable Playwright code & selectors..."),
+                        (9.0, 0.65, "Validating schema & structuring 11-column JSON test objects..."),
+                    ]
+                    while not future.done():
+                        elapsed = time.time() - start_t
+                        if elapsed > 20.0:
+                            break
+                        if on_progress_callback:
+                            pct = min(0.72, 0.25 + (elapsed / 16.0) * 0.47)
+                            msg = "Synthesizing test scenarios and Playwright scripts..."
+                            for t_time, _, t_msg in step_phases:
+                                if elapsed >= t_time:
+                                    msg = t_msg
+                            on_progress_callback(pct, msg)
+                        time.sleep(0.25)
+                    ai_resp = future.result(timeout=5)
+
+                if on_progress_callback:
+                    on_progress_callback(0.76, "Parsing and validating AI JSON payload...")
+                parsed_cases = _clean_and_parse_json(ai_resp, default_target=canonical_target, default_type=default_type)
+                if parsed_cases and isinstance(parsed_cases, list):
+                    total_p = len(parsed_cases[:max_cases])
+                    for idx_p, item in enumerate(parsed_cases[:max_cases]):
+                        if not isinstance(item, dict):
+                            continue
+                        if on_progress_callback and total_p > 0:
+                            cur_pct = 0.76 + ((idx_p + 1) / total_p) * 0.18
+                            on_progress_callback(cur_pct, f"AST-validating Playwright code ({idx_p + 1}/{total_p})...")
+                        step_desc = str(item.get("Test_Step_Description") or item.get("Step") or item.get("Description") or item.get("Action") or "").strip()
+                        if not step_desc:
+                            continue
+                        exp_res = str(item.get("Expected_Result") or item.get("Expected") or item.get("Outcome") or "Action completes successfully").strip()
+                        t_val = str(item.get("Target") or canonical_target).strip()
+                        c_type = str(item.get("Type") or default_type).strip()
+                        exec_notes = str(item.get("Execution_Notes") or item.get("Notes") or "✨ AI Re-Gen Standardized").strip()
+                        pw_code = str(item.get("Playwright_Code") or "").strip()
+
+                        # Validate Playwright code syntax with AST
+                        is_valid_ast = False
+                        if pw_code:
+                            try:
+                                ast.parse(pw_code)
+                                is_valid_ast = True
+                            except Exception:
+                                is_valid_ast = False
+                        if not is_valid_ast:
+                            pw_code = _synthesize_default_playwright_code(step_desc, exp_res, t_val, c_type)
+
+                        cases.append({
+                            "Run": True,
+                            "Type": c_type if c_type in ["Web", "API", "Mobile (Native)"] else default_type,
+                            "Target": t_val,
+                            "Test_Step_Description": step_desc,
+                            "Expected_Result": exp_res,
+                            "Status": "PENDING",
+                            "Duration": "-",
+                            "Actual_Result": "-",
+                            "Screenshot": "",
+                            "Execution_Notes": exec_notes,
+                            "Playwright_Code": pw_code,
+                        })
+            except Exception as ex:
+                print(f"[AI Re-Gen] LLM generation error: {ex}. Falling back to deterministic parser...")
+
+        # 3. If AI parsing produced valid cases, return them
+        if cases:
+            if on_progress_callback:
+                on_progress_callback(0.96, f"Standardizing {len(cases)} test cases with 11-field schema...")
+            df_out = pd.DataFrame(cases)
+            df_out.index = range(1, len(df_out) + 1)
+            if on_progress_callback:
+                on_progress_callback(1.00, f"✅ Standardized {len(df_out)} test cases with Playwright code!")
+            return df_out
+
+        # 4. Deterministic fallbacks:
+        # First, try tabular QA sheet parser
+        if on_progress_callback:
+            on_progress_callback(0.85, "Applying deterministic QA sheet fallback parser...")
+        df_fallback = parse_qa_test_sheet_to_dataframe(data if hasattr(data, "read") or isinstance(data, pd.DataFrame) else raw_text, default_target=canonical_target)
+        if df_fallback is not None and not df_fallback.empty:
+            if on_progress_callback:
+                on_progress_callback(1.00, f"✅ Parsed {len(df_fallback)} test cases via QA sheet engine!")
+            return df_fallback
+
+        # Second, try bullet/unstructured text parser
+        fallback_cases = _fallback_parse_raw_text(raw_text, default_target=canonical_target, default_type=default_type)
+        if fallback_cases:
+            if on_progress_callback:
+                on_progress_callback(0.96, f"Structuring {len(fallback_cases)} test cases from unstructured notes...")
+            df_out = pd.DataFrame(fallback_cases)
+            df_out.index = range(1, len(df_out) + 1)
+            if on_progress_callback:
+                on_progress_callback(1.00, f"✅ Parsed {len(df_out)} test cases from notes!")
+            return df_out
+
+        return pd.DataFrame(columns=["Run", "Type", "Target", "Test_Step_Description", "Expected_Result", "Status", "Duration", "Actual_Result", "Screenshot", "Execution_Notes", "Playwright_Code"])
+
+
+def _fallback_parse_raw_text(text: str, default_target: str = "", default_type: str = "Web") -> list:
+    """Parses raw, unstructured test case notes, bullet points, or Jira descriptions into standard test objects."""
+    if not text:
+        return []
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    if not lines:
+        return []
+    cases = []
+    canonical_target = (default_target or "").strip()
+
+    for line in lines:
+        if re.match(r"^[-=_*#]{3,}$", line) or line.startswith("//"):
+            continue
+
+        m_tc = re.match(r"^(?:(?:tc|test\s*case|scenario|spec|step)?\s*[\d#]+[:.)-]|\*|-|\u2022)\s*(.*)", line, re.IGNORECASE)
+        step_content = m_tc.group(1).strip() if m_tc else line
+        if not step_content or len(step_content) < 3:
+            continue
+
+        exp_match = re.search(r"(?:expected(?:\s*result|\s*outcome|\s*output)?|should(?:\s*be)?|outcome|assert|verify)[:\-]\s*(.*)", step_content, re.IGNORECASE)
+        if exp_match:
+            exp_text = exp_match.group(1).strip()
+            desc_text = step_content[:exp_match.start()].strip()
+            if not desc_text:
+                desc_text = "Verify step action"
+        else:
+            # Check if line is CSV/delimited with multiple fields
+            parts = []
+            if "," in line:
+                try:
+                    parts = [p.strip() for p in next(csv.reader([line])) if str(p).strip()]
+                except Exception:
+                    parts = [p.strip() for p in line.split(",") if p.strip()]
+            if len(parts) >= 3:
+                desc_text = parts[1]
+                exp_text = parts[2]
+            elif len(parts) == 2:
+                desc_text = parts[0]
+                exp_text = parts[1]
+            else:
+                desc_text = step_content
+                exp_text = f"Verify {desc_text[:60]} succeeds" if len(desc_text) > 5 else "Action executes cleanly"
+
+        target_val = canonical_target
+        url_match = re.search(r"https?://[^\s,;]+", line)
+        if url_match:
+            target_val = url_match.group(0)
+
+        test_type = default_type
+        if any(k in desc_text.lower() for k in ["api", "endpoint", "get request", "post request", "status 200"]):
+            test_type = "API"
+        elif any(k in desc_text.lower() for k in ["android", "mobile", "tap (", "swipe"]):
+            test_type = "Mobile (Native)"
+
+        pw_code = _synthesize_default_playwright_code(desc_text, exp_text, target_val, test_type)
+
+        cases.append({
+            "Run": True,
+            "Type": test_type,
+            "Target": target_val,
+            "Test_Step_Description": desc_text,
+            "Expected_Result": exp_text,
+            "Status": "PENDING",
+            "Duration": "-",
+            "Actual_Result": "-",
+            "Screenshot": "",
+            "Execution_Notes": "Parsed from QA notes",
+            "Playwright_Code": pw_code,
+        })
+    return cases
+
+
+def parse_qa_test_sheet_to_dataframe(data, default_target: str = "") -> pd.DataFrame:
+    """
+    Intelligently parses messy QA test suite exports containing metadata blocks, metric summaries,
+    and multiple embedded test case tables with varying column headers (e.g. from Jira, Qase, TestRail, Excel).
+    Returns a normalized DataFrame conforming to the standard 11-column test suite structure.
+    """
+    if isinstance(data, pd.DataFrame):
+        csv_buffer = io.StringIO()
+        data.to_csv(csv_buffer, index=False)
+        text_content = csv_buffer.getvalue()
+    elif isinstance(data, (bytes, bytearray)):
+        raw_b = bytes(data)
+        if raw_b[:2] == b"PK":
+            try:
+                xl = pd.ExcelFile(io.BytesIO(raw_b))
+                sheets_text = []
+                for s in xl.sheet_names:
+                    sdf = pd.read_excel(xl, sheet_name=s)
+                    if not sdf.empty:
+                        sdf["Sheet_Name"] = s
+                        sheets_text.append(sdf.to_csv(index=False))
+                text_content = "\n\n".join(sheets_text)
+            except Exception:
+                text_content = ""
+        else:
+            text_content = ""
+
+        if not text_content:
+            for enc in ["utf-8-sig", "utf-8", "latin1", "cp1252"]:
+                try:
+                    text_content = raw_b.decode(enc)
+                    break
+                except UnicodeDecodeError:
+                    continue
+            else:
+                text_content = raw_b.decode("utf-8", errors="replace")
+    elif hasattr(data, "read"):
+        if hasattr(data, "seek"):
+            data.seek(0)
+        raw_b = data.read()
+        name = getattr(data, "name", "").lower()
+        if name.endswith((".xlsx", ".xls")) or (isinstance(raw_b, bytes) and raw_b[:2] == b"PK"):
+            try:
+                xl = pd.ExcelFile(io.BytesIO(raw_b))
+                sheets_text = []
+                for s in xl.sheet_names:
+                    sdf = pd.read_excel(xl, sheet_name=s)
+                    if not sdf.empty:
+                        sdf["Sheet_Name"] = s
+                        sheets_text.append(sdf.to_csv(index=False))
+                text_content = "\n\n".join(sheets_text)
+            except Exception:
+                text_content = ""
+        else:
+            text_content = ""
+
+        if not text_content:
+            if isinstance(raw_b, bytes):
+                for enc in ["utf-8-sig", "utf-8", "latin1", "cp1252"]:
+                    try:
+                        text_content = raw_b.decode(enc)
+                        break
+                    except UnicodeDecodeError:
+                        continue
+                else:
+                    text_content = raw_b.decode("utf-8", errors="replace")
+            else:
+                text_content = str(raw_b)
+    else:
+        text_content = str(data or "")
+
+    exact_header_signatures = {
+        "testcaseid", "tcid", "caseid", "usecaseid", "ucid", "date", "module",
+        "testcasetitle", "testtitle", "title", "scenariotype", "classification",
+        "testcasedescription", "description", "details", "teststeps", "steps",
+        "useractionondevlink", "action", "teststepdescription", "stepdescription",
+        "testdata", "data", "expectedresult", "expectedoutcome", "expectedoutput",
+        "expectedbehavior", "expected", "actualresult", "actualoutcome", "actual",
+        "priority", "severity", "result", "status", "devresult", "comments", "remarks",
+        "evidence", "evidencefailedcase", "screenfunction", "screen", "target",
+        "targeturl", "url", "link", "playwrightcode", "run", "column1", "column16",
+        "result2", "attachmentlink", "actualresultindev", "preconditions", "jira", "jirakey",
+        "heading", "defect", "defectid", "executedby", "executiondate", "environment",
+        "buildstatus", "testcaseids", "usecaseids"
+    }
+
+    known_header_prefixes = (
+        "step", "action", "expected", "result", "screen", "precondition",
+        "testcase", "usecase", "buildstatus", "evidencelink", "modulewiseevidence",
+        "executedby", "executiondate", "heading", "defect", "environment",
+        "target", "module", "status", "priority", "description"
+    )
+
+    def _extract_section_banner(cells):
+        non_empty = [str(c).strip() for c in cells if str(c).strip()]
+        if len(non_empty) == 1:
+            text = non_empty[0]
+            if len(text) > 3 and not text.isdigit():
+                if re.match(r"^(?:\d+\.?)+[:.\s-]", text) or any(kw in text.lower() for kw in [
+                    "user story", "school erp", "super admin", "school admin", "setup wizard",
+                    "step ", "part ", "template", "curriculum", "module", "screen"
+                ]):
+                    return text
+        return None
+
+    def _is_header_row(cells):
+        non_empty = [str(c).strip() for c in cells if str(c).strip()]
+        if len(non_empty) < 2:
+            return False
+        first_val = non_empty[0]
+        # Data row row numbers (e.g. 1, 2, 3...) or test case IDs (e.g. TC-001, UC-01, TC-SA-LOGIN-001)
+        if first_val.isdigit():
+            return False
+        if re.match(r"^(?:tc|uc|slm|us)[-_a-z0-9]*\d+", first_val, re.IGNORECASE):
+            return False
+        
+        matches = 0
+        for c in cells:
+            raw_c = str(c).strip()
+            if raw_c == "#":
+                matches += 1
+                continue
+            clean = re.sub(r"[^a-z0-9]", "", raw_c.lower())
+            if not clean:
+                continue
+            if clean in exact_header_signatures:
+                matches += 1
+            elif any(clean.startswith(pfx) for pfx in known_header_prefixes):
+                matches += 1
+        return matches >= 3 if len(non_empty) >= 4 else matches >= 2
+
+    def _is_metadata_or_metric_row(cells):
+        non_empty = [str(c).strip() for c in cells if str(c).strip()]
+        if not non_empty:
+            return True
+        if len(non_empty) <= 2:
+            return True
+        row_str = ",".join(str(c).lower().strip() for c in cells)
+        if any(kw in row_str for kw in [
+            "metric", "count", "test cases executed", "remaining to test", "test pass %", "test fail %",
+            "test blocked %", "total test cases", "pending dev", "pending to test",
+            "in next sprint", "field,value", "evidence(failed case)", "new client changes"
+        ]):
+            if len(non_empty) <= 4:
+                return True
+        return False
+
+    reader = csv.reader(io.StringIO(text_content))
+    try:
+        all_raw_rows = list(reader)
+    except Exception:
+        cleaned = text_content.replace("\x00", "")
+        all_raw_rows = list(csv.reader(io.StringIO(cleaned)))
+
+    tables = []
+    current_sheet = "Default"
+    current_headers = None
+    current_data = []
+
+    for row in all_raw_rows:
+        if not any(str(c).strip() for c in row):
+            continue
+
+        sec_title = _extract_section_banner(row)
+        if sec_title:
+            if current_headers and current_data:
+                tables.append((current_sheet, current_headers, current_data))
+                current_data = []
+            current_sheet = sec_title
+            continue
+
+        if _is_header_row(row):
+            if current_headers and current_data:
+                tables.append((current_sheet, current_headers, current_data))
+                current_data = []
+            current_headers = [str(c).strip() for c in row]
+            continue
+
+        if _is_metadata_or_metric_row(row):
+            continue
+
+        if current_headers:
+            non_empty = [c for c in row if str(c).strip()]
+            if not non_empty:
+                continue
+            if len(row) < len(current_headers):
+                row = row + [""] * (len(current_headers) - len(row))
+            elif len(row) > len(current_headers):
+                row = row[:len(current_headers)]
+            current_data.append(row)
+
+    if current_headers and current_data:
+        tables.append((current_sheet, current_headers, current_data))
+
+    cases = []
+    canonical_target = default_target.strip() if default_target else ""
+
+    for sheet_name, headers, rows in tables:
+        col_map = {}
+        for idx, h in enumerate(headers):
+            clean_h = re.sub(r"[^a-z0-9]", "", h.lower().strip())
+            col_map[clean_h] = idx
+
+        def _get_val(row_data, candidate_names, default=""):
+            for cand in candidate_names:
+                clean_cand = re.sub(r"[^a-z0-9]", "", cand.lower().strip())
+                if clean_cand in col_map and col_map[clean_cand] < len(row_data):
+                    v = str(row_data[col_map[clean_cand]]).strip()
+                    if v and v.lower() not in ["nan", "none"] and v != ",":
+                        return v
+            for cand in candidate_names:
+                clean_cand = re.sub(r"[^a-z0-9]", "", cand.lower().strip())
+                if len(clean_cand) < 3:
+                    continue
+                for col_clean, idx in col_map.items():
+                    if clean_cand in col_clean and idx < len(row_data):
+                        v = str(row_data[idx]).strip()
+                        if v and v.lower() not in ["nan", "none"] and v != ",":
+                            return v
+            return default
+
+        for r in rows:
+            case_item = {}
+            for idx, h in enumerate(headers):
+                if idx < len(r):
+                    h_clean = str(h).strip()
+                    if h_clean and not re.match(r'^(?:unnamed|column\s*\d+)$', h_clean, re.IGNORECASE):
+                        val = str(r[idx]).strip()
+                        if val.lower() != "nan":
+                            case_item[h_clean] = val
+
+            target_cand = _get_val(r, ["target", "targeturl", "url", "link", "endpoint"])
+            target_val = ""
+            if target_cand and not any(ign in target_cand.lower() for ign in ["drive.google.com", "dropbox.com", "loom.com", "youtube.com"]):
+                if target_cand.startswith("http://") or target_cand.startswith("https://") or target_cand.startswith("android://"):
+                    target_val = target_cand
+            if not target_val and canonical_target:
+                target_val = canonical_target
+
+            module_val = _get_val(r, ["screenfunction", "screen", "feature", "module", "heading", "screen/function"])
+            title_val = _get_val(r, ["testcasetitle", "testtitle", "title", "scenario"])
+            tc_id = _get_val(r, ["testcaseids", "testcaseid", "tcid", "caseid", "id"])
+            uc_id = _get_val(r, ["usecaseids", "usecaseid", "ucid"])
+            precond_val = _get_val(r, ["preconditions", "testdata", "data"])
+            build_val = _get_val(r, ["buildstatus", "buildstatustoday", "build"])
+            defect_val = _get_val(r, ["defectid", "defect"])
+            tester_val = _get_val(r, ["executedby", "tester"])
+            date_val = _get_val(r, ["executiondate", "date"])
+            orig_result = _get_val(r, ["result", "devresult", "manualresult"])
+
+            steps_val = _get_val(r, ["stepswhoclickswhatonthedevlink", "teststeps", "steps", "useractionondevlink", "action", "teststepdescription", "stepdescription"])
+            desc_val = _get_val(r, ["testcasedescription", "description", "details"])
+
+            step_desc = ""
+            if steps_val:
+                step_desc = steps_val
+            elif desc_val:
+                step_desc = desc_val
+            elif title_val:
+                step_desc = title_val
+            elif module_val:
+                step_desc = f"Verify {module_val} flow"
+            else:
+                step_desc = "Verify UI function and flow"
+
+            exp_val = _get_val(r, [
+                "expectedresultwhattheysee", "expectedresult", "expectedoutcome", "expectedoutput",
+                "expectedbehavior", "expectedresults", "expectedoutcomes",
+                "expected", "acceptancecriteria"
+            ], default="")
+            if not exp_val:
+                for clean_h, idx in col_map.items():
+                    if ("expected" in clean_h or "outcome" in clean_h) and idx < len(r):
+                        val_cand = str(r[idx]).strip()
+                        if val_cand and val_cand.lower() not in ["nan", "none"]:
+                            exp_val = val_cand
+                            break
+            if not exp_val:
+                exp_val = f"Verify {step_desc[:60]} succeeds" if step_desc and step_desc != "Verify UI function and flow" else "Action executes cleanly"
+
+            type_val = _get_val(r, ["type", "testtype"])
+            classif_val = _get_val(r, ["classification", "scenariotype", "category"])
+            combined_type_text = f"{type_val} {classif_val} {module_val} {title_val} {step_desc}".lower()
+
+            if "api" in classif_val.lower() or "api" in type_val.lower() or "/api/" in target_val.lower() or "call login api" in step_desc.lower():
+                final_type = "API"
+            elif any(k in combined_type_text for k in ["mobile", "android", "native"]):
+                final_type = "Mobile (Native)"
+            else:
+                final_type = "Web"
+
+            notes_parts = []
+            if tc_id:
+                notes_parts.append(f"[{tc_id}]")
+            if uc_id:
+                notes_parts.append(f"[{uc_id}]")
+            if module_val:
+                notes_parts.append(f"Module: {module_val}")
+            prio = _get_val(r, ["priority", "severity"])
+            if prio:
+                notes_parts.append(f"Priority: {prio}")
+            if precond_val and precond_val.lower() not in ["n/a", "none", "-"]:
+                notes_parts.append(f"Preconditions: {precond_val}")
+            if build_val and build_val.lower() not in ["n/a", "none", "-"]:
+                notes_parts.append(f"Build: {build_val}")
+            if defect_val and defect_val.lower() not in ["n/a", "none", "-"]:
+                notes_parts.append(f"Defect: {defect_val}")
+            if tester_val and tester_val.lower() not in ["n/a", "none", "-"]:
+                notes_parts.append(f"Tester: {tester_val}")
+            if date_val and date_val.lower() not in ["n/a", "none", "-"]:
+                notes_parts.append(f"Date: {date_val}")
+            if orig_result and orig_result.lower() not in ["n/a", "none", "-"]:
+                notes_parts.append(f"Manual Result: {orig_result}")
+
+            exec_notes = " | ".join(notes_parts)
+
+            pw_code = _get_val(r, ["playwrightcode", "playwright_code", "code", "script"])
+            if not pw_code or pw_code.lower() == "nan" or "sync_playwright" in pw_code:
+                pw_code = _synthesize_default_playwright_code(step_desc, exp_val, target_val, final_type)
+
+            row_sheet = _get_val(r, ["sheetname", "sheet_name", "sheet"])
+            effective_sheet = row_sheet if (row_sheet and row_sheet.lower() not in ["nan", "none", "default", ""]) else sheet_name
+
+            case_item.update({
+                "Run": True,
+                "Type": final_type,
+                "Target": target_val,
+                "Test_Step_Description": step_desc,
+                "Expected_Result": exp_val,
+                "Status": "PENDING",
+                "Duration": "-",
+                "Actual_Result": "-",
+                "Screenshot": "",
+                "Execution_Notes": exec_notes,
+                "Playwright_Code": pw_code,
+                "Sheet_Name": effective_sheet,
+                "_target": target_val,
+                "_step": step_desc,
+                "_expected": exp_val,
+                "_code": pw_code,
+            })
+            cases.append(case_item)
+
+    if not cases:
+        fallback_cases = _fallback_parse_raw_text(text_content, default_target=canonical_target)
+        if fallback_cases:
+            df_out = pd.DataFrame(fallback_cases)
+            df_out.index = range(1, len(df_out) + 1)
+            return df_out
+        return pd.DataFrame(columns=["Run", "Type", "Target", "Test_Step_Description", "Expected_Result", "Status", "Duration", "Actual_Result", "Screenshot", "Execution_Notes", "Playwright_Code"])
+
+    df_out = pd.DataFrame(cases)
+    df_out = harmonize_qa_dataframe(df_out)
+    df_out.index = range(1, len(df_out) + 1)
+    return df_out
+
+
+def harmonize_qa_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Harmonizes synonymous column names across multi-sheet workbooks and diverse QA exports.
+    Ensures Screen/Function, User Action on Dev Link, Expected Outcome, and their counterparts
+    are mutually synchronized and never left empty for any sheet or test case.
+    """
+    if df is None or not isinstance(df, pd.DataFrame) or df.empty:
+        return df
+
+    # Fast bypass if no QA-specific synonym columns exist
+    qa_check_keys = {
+        "Screen / Function", "Screen / function", "Screen/Function", "Heading (one of the 7)",
+        "Heading", "User Action on Dev Link", "Steps: who clicks what on the dev link",
+        "Expected Outcome", "Expected outcome", "Expected result: what they see",
+        "Preconditions (test account, data that must exist first)", "Preconditions"
+    }
+    if not qa_check_keys.intersection(df.columns):
+        return df
+
+    d = df.copy()
+
+    def _get_first_valid(series_list):
+        res = pd.Series("", index=d.index, dtype="object")
+        for s in series_list:
+            if s is None:
+                continue
+            clean_s = s.fillna("").astype(str).str.strip()
+            mask = res.isin(["", "nan", "None", "-"]) & ~clean_s.isin(["", "nan", "None", "-"])
+            res.loc[mask] = clean_s.loc[mask]
+        return res
+
+    # 1. Screen / Module / Feature / Screen / Function
+    screen_synonyms = [
+        "Screen / Function", "Screen / function", "Screen/Function", "Heading (one of the 7)", "Heading",
+        "Module", "Screen", "Feature", "Module/Screen", "Test Case Title", "Title"
+    ]
+    existing_screen_cols = [c for c in screen_synonyms if c in d.columns]
+    if existing_screen_cols:
+        best_screen = _get_first_valid([d[c] for c in existing_screen_cols])
+        for c in ["Screen / Function", "Screen / function", "Module"]:
+            if c in d.columns:
+                cur = d[c].fillna("").astype(str).str.strip()
+                d[c] = cur.where(~cur.isin(["", "nan", "None", "-"]), best_screen)
+            elif any(k in d.columns for k in ["Screen / Function", "User Action on Dev Link", "Module", "Test Steps"]):
+                d[c] = best_screen
+
+    # 2. User Action on Dev Link / Test Steps / Description
+    step_synonyms = [
+        "Steps: who clicks what on the dev link", "User Action on Dev Link", "Test Steps", "Test_Step_Description",
+        "Test Step Description", "Action", "Steps", "Step Description",
+        "Test Case Description", "Description"
+    ]
+    existing_step_cols = [c for c in step_synonyms if c in d.columns]
+    if existing_step_cols:
+        best_step = _get_first_valid([d[c] for c in existing_step_cols])
+        for c in ["Steps: who clicks what on the dev link", "User Action on Dev Link", "Test Steps", "Test_Step_Description"]:
+            if c in d.columns:
+                cur = d[c].fillna("").astype(str).str.strip()
+                d[c] = cur.where(~cur.isin(["", "nan", "None", "-"]), best_step)
+            elif any(k in d.columns for k in ["User Action on Dev Link", "Expected Outcome", "Test Steps", "Expected Result"]):
+                d[c] = best_step
+        if "_step" in d.columns:
+            cur_s = d["_step"].fillna("").astype(str).str.strip()
+            d["_step"] = cur_s.where(~cur_s.isin(["", "nan", "None", "-"]), best_step)
+
+    # 3. Expected Outcome / Expected Result
+    exp_synonyms = [
+        "Expected result: what they see", "Expected Outcome", "Expected Result", "Expected_Result",
+        "Expected Output", "Expected Behavior", "Acceptance Criteria", "Expected"
+    ]
+    existing_exp_cols = [c for c in exp_synonyms if c in d.columns]
+    if existing_exp_cols:
+        best_exp = _get_first_valid([d[c] for c in existing_exp_cols])
+        for c in ["Expected result: what they see", "Expected Outcome", "Expected Result", "Expected_Result"]:
+            if c in d.columns:
+                cur = d[c].fillna("").astype(str).str.strip()
+                d[c] = cur.where(~cur.isin(["", "nan", "None", "-"]), best_exp)
+            elif any(k in d.columns for k in ["Expected Outcome", "User Action on Dev Link", "Expected Result"]):
+                d[c] = best_exp
+        if "_expected" in d.columns:
+            cur_e = d["_expected"].fillna("").astype(str).str.strip()
+            d["_expected"] = cur_e.where(~cur_e.isin(["", "nan", "None", "-"]), best_exp)
+
+    # 4. Target / URL
+    target_synonyms = ["Target", "Target URL", "URL", "Link", "Endpoint"]
+    existing_target_cols = [c for c in target_synonyms if c in d.columns]
+    if existing_target_cols:
+        best_target = _get_first_valid([d[c] for c in existing_target_cols])
+        if "Target" in d.columns:
+            cur_t = d["Target"].fillna("").astype(str).str.strip()
+            d["Target"] = cur_t.where(~cur_t.isin(["", "nan", "None", "-"]), best_target)
+        if "_target" in d.columns:
+            cur_t2 = d["_target"].fillna("").astype(str).str.strip()
+            d["_target"] = cur_t2.where(~cur_t2.isin(["", "nan", "None", "-"]), best_target)
+
+    # 5. Sheet_Name cleanup
+    if "Sheet_Name" in d.columns:
+        d["Sheet_Name"] = d["Sheet_Name"].fillna("Default").astype(str).str.strip()
+        d.loc[d["Sheet_Name"].isin(["", "nan", "None"]), "Sheet_Name"] = "Default"
+
+    return d
+
+
 

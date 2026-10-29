@@ -360,6 +360,34 @@ class TestDeviceBridge(unittest.TestCase):
         score = calculate_navigation_desirability(drawer_elem, screen_w=1080, screen_h=2400)
         self.assertGreaterEqual(score, 90.0)
 
+    def test_find_free_port_allocates_valid_port(self):
+        """Verifies find_free_port returns a usable port and skips reserved ports."""
+        from core.device_bridge import find_free_port
+        port = find_free_port(start_port=9222)
+        self.assertGreaterEqual(port, 9222)
+        self.assertNotIn(port, [5000, 7000])
+
+    @patch("core.device_bridge.subprocess.run")
+    def test_reset_all_device_forwards(self, mock_run):
+        """Verifies adb forward --remove-all cleans all tunnels."""
+        from core.device_bridge import reset_all_device_forwards
+        mock_run.return_value = MagicMock(returncode=0, stdout="")
+        ok = reset_all_device_forwards(serial="emulator-5554")
+        self.assertTrue(ok)
+        call_args = mock_run.call_args[0][0]
+        self.assertIn("forward", call_args)
+        self.assertIn("--remove-all", call_args)
+
+    @patch("core.device_bridge.subprocess.run")
+    def test_forward_device_port_auto_port(self, mock_run):
+        """Verifies auto_port finds an open port and sets active port tracking."""
+        from core.device_bridge import forward_device_port, get_active_forwarded_port
+        mock_run.return_value = MagicMock(returncode=0, stdout="")
+        ok = forward_device_port("chrome_devtools_remote", local_port=9222, serial="emulator-5554", auto_port=True)
+        self.assertTrue(ok)
+        active_p = get_active_forwarded_port()
+        self.assertGreaterEqual(active_p, 9222)
+
     @patch("time.sleep", return_value=None)
     @patch("core.device_bridge.swipe_device_screen", return_value=True)
     @patch("core.device_bridge.tap_device_element", return_value=True)

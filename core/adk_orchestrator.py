@@ -137,10 +137,18 @@ CRITICAL TEST STEP QUALITY RULES:
                         print(f"[API Agent] Success using {model_name}!")
                         break
                 except errors.ClientError as e:
-                    print(f"[API Agent] Model {model_name} failed: {getattr(e, 'message', e)}. Falling back...")
+                    err_msg = str(getattr(e, 'message', e))
+                    print(f"[API Agent] Model {model_name} failed: {err_msg}. Falling back...")
+                    if any(k in err_msg.lower() for k in ["api key not valid", "api_key_invalid", "unauthenticated", "invalid api key"]):
+                        print("[API Agent] Gemini API key is invalid. Skipping remaining Gemini models.")
+                        break
                     continue
                 except Exception as e:
-                    print(f"[API Agent] Notice with {model_name}: {e}")
+                    err_msg = str(e)
+                    print(f"[API Agent] Notice with {model_name}: {err_msg}")
+                    if any(k in err_msg.lower() for k in ["api key not valid", "api_key_invalid", "unauthenticated", "invalid api key"]):
+                        print("[API Agent] Gemini API key is invalid. Skipping remaining Gemini models.")
+                        break
                     continue
 
         # 3. Fallback to OpenAI if configured
@@ -229,14 +237,14 @@ CRITICAL TEST STEP QUALITY & EXECUTION RULES:
 1. ATOMIC & STRUCTURED ACTIONS: Each `Test_Step_Description` must specify clear, numbered sequential steps on elements present in the DOM:
    - "Step 1: Navigate to page -> Step 2: Verify page header & layout containers render visibly."
    - "Step 1: Locate search input -> Step 2: Fill search input with 'test query' -> Step 3: Press Enter to execute search."
-   - "Step 1: Click 'DEO Data Entry' navigation link -> Step 2: Verify data table view loads with candidate records."
+   - "Step 1: Click 'Users' navigation link -> Step 2: Verify data table view loads with candidate records."
    - "Step 1: Click on first 'Enter Data' button in table row -> Step 2: Verify modal dialog opens with form inputs."
    - "Step 1: Select 'Assigned' option from status dropdown -> Step 2: Verify table filters records accordingly."
    - "Step 1: Leave mandatory inputs blank -> Step 2: Click Submit button -> Step 3: Verify required field validation error appears."
 
 2. RESILIENT PLAYWRIGHT CODE & ASSERTIONS:
    - For page title & load verification: Use `assert len((page.title() or '').strip()) > 0` and `expect(page.locator('body')).to_be_visible()`.
-   - DO NOT generate rigid exact equality assertions on `page.url == '...'` that break on redirects (such as unauthenticated redirects to /login) or trailing slashes. Instead, check `assert any(k in page.url for k in ['dashboard', 'leadcrm', 'login'])` or `expect(page.locator('body')).to_be_visible()`.
+   - DO NOT generate rigid exact equality assertions on `page.url == '...'` that break on redirects (such as unauthenticated redirects to /login) or trailing slashes. Instead, check `assert any(k in page.url for k in ['dashboard', 'home', 'login'])` or `expect(page.locator('body')).to_be_visible()`.
    - Always check element count or use `.first` before clicking or interacting: `if page.locator('...').count() > 0: page.locator('...').first.click(force=True)`.
 
 3. STRICT JSON OUTPUT FORMAT:
@@ -294,10 +302,18 @@ CRITICAL TEST STEP QUALITY & EXECUTION RULES:
                         print(f"[Web Agent] Success using {model_name}!")
                         break
                 except errors.ClientError as e:
-                    print(f"[Web Agent] Model {model_name} failed: {getattr(e, 'message', e)}. Falling back...")
+                    err_msg = str(getattr(e, 'message', e))
+                    print(f"[Web Agent] Model {model_name} failed: {err_msg}. Falling back...")
+                    if any(k in err_msg.lower() for k in ["api key not valid", "api_key_invalid", "unauthenticated", "invalid api key"]):
+                        print("[Web Agent] Gemini API key is invalid. Skipping remaining Gemini models.")
+                        break
                     continue
                 except Exception as e:
-                    print(f"[Web Agent] Notice with {model_name}: {e}")
+                    err_msg = str(e)
+                    print(f"[Web Agent] Notice with {model_name}: {err_msg}")
+                    if any(k in err_msg.lower() for k in ["api key not valid", "api_key_invalid", "unauthenticated", "invalid api key"]):
+                        print("[Web Agent] Gemini API key is invalid. Skipping remaining Gemini models.")
+                        break
                     continue
 
         # 3. Fallback to OpenAI if configured
@@ -384,8 +400,16 @@ class TestOrchestrator:
     @property
     def client(self) -> genai.Client:
         """Dynamically provides active Gemini GenAI client."""
+        if getattr(self, "_gemini_key_invalid", False):
+            return None
         gemini_key = os.getenv("GEMINI_API_KEY", "").strip()
         if gemini_key:
+            if not gemini_key.startswith("AIzaSy"):
+                if not getattr(self, "_key_format_warned", False):
+                    print("[AI Orchestrator] Notice: GEMINI_API_KEY does not start with standard Google AI Studio prefix 'AIzaSy'. Switching directly to Free AI Mode.")
+                    self._key_format_warned = True
+                    self._gemini_key_invalid = True
+                return None
             if self._gemini_client is None or getattr(self, "_current_key", "") != gemini_key:
                 try:
                     self._gemini_client = genai.Client(api_key=gemini_key)
@@ -393,6 +417,7 @@ class TestOrchestrator:
                 except Exception as e:
                     print(f"Warning: Failed to create Gemini client: {e}")
                     self._gemini_client = None
+                    self._gemini_key_invalid = True
         else:
             self._gemini_client = None
         return self._gemini_client

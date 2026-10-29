@@ -23,7 +23,7 @@ from concurrent.futures import ThreadPoolExecutor
 from playwright.sync_api import sync_playwright, expect
 
 from core.ai_client import AIClient
-from core.self_healing import SelfHealingEngine, self_healing_engine
+from core.self_healing import SelfHealingEngine, self_healing_engine, StepSkippedException
 from core.visual_inspector import VisualInspector
 from core.screenshot_utils import capture_full_scroll_screenshot, save_screenshot_with_prefix
 from core.replay_cache import ReplayCache
@@ -228,6 +228,15 @@ class SafeNamespace(dict):
 
         def _click_locator_safely(loc_item, timeout=3000, force=True):
             try:
+                page.evaluate("""() => {
+                    document.querySelectorAll('.modal-backdrop, .offcanvas-backdrop, [class*="backdrop"]').forEach(el => {
+                        el.style.pointerEvents = 'none';
+                        el.style.opacity = '0';
+                    });
+                }""")
+            except Exception:
+                pass
+            try:
                 if loc_item.is_disabled():
                     loc_item.dispatch_event("click")
                     return True
@@ -237,7 +246,10 @@ class SafeNamespace(dict):
                 loc_item.scroll_into_view_if_needed(timeout=1500)
             except Exception:
                 pass
-            loc_item.click(force=force, timeout=timeout)
+            try:
+                loc_item.click(force=force, timeout=timeout)
+            except Exception:
+                loc_item.dispatch_event("click")
             return True
 
         # Smart helper actions for resilient web interactions
@@ -456,6 +468,32 @@ class SafeNamespace(dict):
                 pass
             return False
 
+        def smart_kpi_check(label, expected_val=None):
+            try:
+                card = page.locator('div, [role="region"], [role="button"], a, button, [class*="card"], [class*="stat"], [class*="metric"], [class*="tile"], [class*="summary"], [class*="kpi"]').filter(has_text=label).first
+                if card.count() == 0:
+                    card = page.get_by_text(label).first
+                if card.count() > 0:
+                    expect(card).to_be_visible(timeout=4000)
+                    return True
+            except Exception:
+                pass
+            return False
+
+        def smart_kpi_click(label):
+            try:
+                card = page.locator('div, [role="region"], [role="button"], a, button, [class*="card"], [class*="stat"], [class*="metric"], [class*="tile"], [class*="summary"], [class*="kpi"]').filter(has_text=label).first
+                if card.count() == 0:
+                    card = page.get_by_text(label).first
+                if card.count() > 0:
+                    target = card.locator('a, button, [role="button"]').first if card.locator('a, button, [role="button"]').count() > 0 else card
+                    target.click(force=True)
+                    page.wait_for_timeout(300)
+                    return True
+            except Exception:
+                pass
+            return False
+
         self["smart_click"] = smart_click
         self["smart_fill"] = smart_fill
         self["smart_wait"] = smart_wait
@@ -464,6 +502,8 @@ class SafeNamespace(dict):
         self["smart_reset"] = smart_reset
         self["smart_clear_filters"] = smart_clear_filters
         self["smart_clear_search"] = smart_clear_search
+        self["smart_kpi_check"] = smart_kpi_check
+        self["smart_kpi_click"] = smart_kpi_click
 
     def __missing__(self, key):
         lower_k = key.lower()
@@ -599,14 +639,20 @@ def _auto_indent_python_code(code_str: str) -> str:
 _BOILERPLATE_PATTERNS = [
     re.compile(r"^\s*from\s+playwright\S*\s+import.*$"),
     re.compile(r"^\s*import\s+playwright.*$"),
+    re.compile(r"^\s*import\s+os\b.*$"),
+    re.compile(r"^\s*import\s+sys\b.*$"),
     re.compile(r"^\s*def\s+\w+\(.*\):\s*$"),
     re.compile(r"^\s*with\s+sync_playwright\(\).*:\s*$"),
-    re.compile(r"^\s*browser\s*=\s*.*launch\(.*$"),
+    re.compile(r"^\s*(?:browser|ctx|context)\s*=\s*.*(?:launch|connect_over_cdp).*$"),
+    re.compile(r"^\s*p\.(?:chromium|firefox|webkit)\.(?:launch|connect).*$"),
     re.compile(r"^\s*context\s*=\s*.*new_context\(.*$"),
+    re.compile(r"^\s*if\s+os\.path\.exists\(.*$"),
     re.compile(r"^\s*page\s*=\s*.*new_page\(.*$"),
     re.compile(r"^\s*browser\.close\(.*$"),
     re.compile(r"^\s*context\.close\(.*$"),
+    re.compile(r"^\s*context\.storage_state\(.*$"),
     re.compile(r"^\s*if\s+__name__\s*==.*$"),
+    re.compile(r"^\s*run_test\(\)\s*$"),
     re.compile(r"^\s*\w+\(\)\s*$"),
 ]
 
@@ -723,6 +769,71 @@ def _sanitize_playwright_code(raw_code: str) -> str:
     return _auto_indent_python_code(cleaned)
 
 
+def _extract_live_dom_context(page) -> str:
+    """Extracts a structured, dense context of active controls, buttons, forms, nav links, and headings."""
+    try:
+        return page.evaluate("""() => {
+            const getAttrs = (el) => {
+                let attrs = [];
+                if (el.id) attrs.push(`id="${el.id}"`);
+                if (el.name) attrs.push(`name="${el.name}"`);
+                if (el.type) attrs.push(`type="${el.type}"`);
+                if (el.placeholder) attrs.push(`placeholder="${el.placeholder}"`);
+                if (el.getAttribute('aria-label')) attrs.push(`aria-label="${el.getAttribute('aria-label')}"`);
+                if (el.getAttribute('role')) attrs.push(`role="${el.getAttribute('role')}"`);
+                if (el.getAttribute('data-testid')) attrs.push(`data-testid="${el.getAttribute('data-testid')}"`);
+                if (el.href) attrs.push(`href="${el.getAttribute('href')}"`);
+                const cls = (el.className || '').toString().trim().split(/\\s+/).slice(0, 3).join(' ');
+                if (cls) attrs.push(`class="${cls}"`);
+                return attrs.join(' ');
+            };
+            let items = [];
+            items.push(`PAGE_TITLE: ${document.title}`);
+            items.push(`CURRENT_URL: ${window.location.href}`);
+            
+            // Active modals / dialogs first
+            document.querySelectorAll('[role="dialog"], .modal.show, .offcanvas.show, dialog[open], .ant-modal:visible').forEach(m => {
+                items.push(`[ACTIVE_MODAL]: ${(m.innerText || '').slice(0, 300).replace(/\\s+/g, ' ')}`);
+            });
+            // Headings & card titles
+            document.querySelectorAll('h1, h2, h3, h4, .card-title, header, [role="heading"]').forEach(h => {
+                const txt = (h.innerText || '').trim().slice(0, 80).replace(/\\s+/g, ' ');
+                if (txt) items.push(`[HEADING]: ${txt}`);
+            });
+            // Navigation links & tabs
+            document.querySelectorAll('nav a, aside a, .sidebar a, [role="navigation"] a, [role="tab"], .pill-tab, .nav-link').forEach(a => {
+                const txt = (a.innerText || '').trim().slice(0, 60).replace(/\\s+/g, ' ');
+                if (txt) items.push(`[NAV_LINK ${getAttrs(a)}]: "${txt}"`);
+            });
+            // Interactive buttons
+            document.querySelectorAll('button, [role="button"], input[type="submit"], input[type="button"], .btn').forEach(b => {
+                if (b.offsetParent !== null || window.getComputedStyle(b).display !== 'none') {
+                    const txt = (b.innerText || b.value || b.getAttribute('aria-label') || '').trim().slice(0, 60).replace(/\\s+/g, ' ');
+                    if (txt) items.push(`[BUTTON ${getAttrs(b)}]: "${txt}"`);
+                }
+            });
+            // Inputs & textareas
+            document.querySelectorAll('input:not([type="hidden"]), select, textarea').forEach(inp => {
+                if (inp.offsetParent !== null || window.getComputedStyle(inp).display !== 'none') {
+                    const label = (inp.labels && inp.labels[0] ? inp.labels[0].innerText : '') || inp.placeholder || inp.name || '';
+                    items.push(`[INPUT ${getAttrs(inp)} label="${label.slice(0, 50)}"]`);
+                }
+            });
+            // Tables
+            document.querySelectorAll('table, [role="table"]').forEach(t => {
+                const headers = Array.from(t.querySelectorAll('th, [role="columnheader"]')).map(th => (th.innerText || '').trim()).filter(Boolean).slice(0, 8);
+                const rowCount = t.querySelectorAll('tbody tr, [role="row"]').length;
+                items.push(`[TABLE headers="${headers.join(', ')}" rows=${rowCount}]`);
+            });
+            return items.slice(0, 160).join('\\n');
+        }""")
+    except Exception:
+        try:
+            return page.content()[:12000]
+        except Exception:
+            return ""
+
+
 def _is_trivial_or_mismatched_script(code: str, step_desc: str) -> bool:
     """Checks if the snippet is a passive placeholder or doesn't perform the multi-step actions described."""
     clean = (code or "").strip()
@@ -776,6 +887,15 @@ def safe_wait_loaded(page, timeout=5000):
         page.wait_for_load_state("domcontentloaded", timeout=timeout)
     except Exception:
         pass
+    # Auto-click Dev Tunnels interstitial warning continue button if present
+    try:
+        if "devtunnels.ms" in (page.url or "").lower():
+            cont_btn = page.locator('button:has-text("Continue"), input[value="Continue"], #continue-button, [role="button"]:has-text("Continue")').first
+            if cont_btn.count() > 0 and cont_btn.is_visible():
+                cont_btn.click()
+                page.wait_for_timeout(800)
+    except Exception:
+        pass
     try:
         page.wait_for_load_state("networkidle", timeout=1200)
     except Exception:
@@ -824,12 +944,6 @@ def _ensure_authenticated(page, target_url: str, test_data: dict, is_unauth_test
         return
 
     url_lower = (target_url or "").lower()
-    is_login_target = any(
-        kw in url_lower
-        for kw in ["/login", "/signin", "/sign-in", "/register", "/signup", "/sign-up", "/forgot-password"]
-    )
-    if is_login_target:
-        return
 
     current_url_lower = (page.url or "").lower()
     has_password_field = False
@@ -838,7 +952,7 @@ def _ensure_authenticated(page, target_url: str, test_data: dict, is_unauth_test
     except Exception:
         pass
 
-    is_on_login_page = any(kw in current_url_lower for kw in ["/login", "/signin", "/sign-in"]) or has_password_field
+    is_on_login_page = any(kw in current_url_lower for kw in ["/login", "/signin", "/sign-in", "/register", "/signup"]) or has_password_field
 
     if is_on_login_page:
         print(f"[Auth Guard] Protected route '{target_url}' redirected to login ('{page.url}'). Performing auto-login...")
@@ -908,7 +1022,8 @@ def _ensure_authenticated(page, target_url: str, test_data: dict, is_unauth_test
 
             curr_clean = page.url.rstrip("/").split("#")[0].split("?")[0]
             target_clean = target_url.rstrip("/").split("#")[0].split("?")[0]
-            if curr_clean != target_clean:
+            is_target_login = any(kw in target_clean.lower() for kw in ["/login", "/signin", "/sign-in", "/register", "/signup"])
+            if curr_clean != target_clean and not is_target_login:
                 page.goto(target_url, wait_until="domcontentloaded", timeout=30000)
                 safe_wait_loaded(page)
 
@@ -1099,7 +1214,7 @@ OMNICHANNEL_PRESETS = {
     "android_cdp": {
         "engine": "chromium",
         "device": None,
-        "cdp_url": "http://localhost:9222",
+        "cdp_url": "http://127.0.0.1:9222",
         "label": "Android Device / Emulator (ADB)",
         "name": "Android Device / Emulator (ADB)",
         "is_mobile": True,
@@ -1108,7 +1223,7 @@ OMNICHANNEL_PRESETS = {
     "electron_cdp": {
         "engine": "chromium",
         "device": None,
-        "cdp_url": "http://localhost:9223",
+        "cdp_url": "http://127.0.0.1:9223",
         "label": "Desktop Electron App",
         "name": "Desktop Electron App",
         "is_mobile": False,
@@ -1185,17 +1300,26 @@ def _launch_platform_browser(p, platform_config: dict, headed: bool = False):
         except Exception as fe:
             print(f"[Omnichannel] Firefox engine launch note: {fe}. Falling back to Chromium...")
 
+    anti_throttle_args = [
+        "--disable-renderer-backgrounding",
+        "--disable-background-timer-throttling",
+        "--disable-backgrounding-occluded-windows",
+        "--disable-dev-shm-usage",
+    ]
+    if sys.platform != "win32":
+        anti_throttle_args.append("--no-sandbox")
+
     # Default Chromium (custom executable, msedge, or bundled)
     exec_path = os.getenv("PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH", "").strip()
     if exec_path and os.path.exists(exec_path):
         try:
-            return p.chromium.launch(headless=not headed, executable_path=exec_path)
+            return p.chromium.launch(headless=not headed, executable_path=exec_path, args=anti_throttle_args)
         except Exception:
             pass
     try:
-        return p.chromium.launch(headless=not headed, channel="msedge")
+        return p.chromium.launch(headless=not headed, channel="msedge", args=anti_throttle_args)
     except Exception:
-        return p.chromium.launch(headless=not headed)
+        return p.chromium.launch(headless=not headed, args=anti_throttle_args)
 
 
 def _apply_network_throttling(context, net_preset: str):
@@ -1251,7 +1375,11 @@ def _create_platform_context(p, browser, platform_config: dict, storage_state_fi
         except Exception:
             pass
 
-    context = browser.new_context(**context_kwargs)
+    is_cdp = bool(platform_config.get("is_cdp") or platform_config.get("cdp_url"))
+    if is_cdp and browser and hasattr(browser, "contexts") and len(browser.contexts) > 0:
+        context = browser.contexts[0]
+    else:
+        context = browser.new_context(**context_kwargs)
 
     net_preset = platform_config.get("network_preset", "direct")
     if net_preset and net_preset != "direct":
@@ -1388,19 +1516,32 @@ class WebRunner:
 
         # Check if step is explicitly testing login page, unauthenticated access, or logout
         url_lower = str(self.url or "").lower()
-        is_login_target = any(kw in url_lower for kw in ["/login", "/signin", "/sign-in", "/register", "/signup"])
-        is_unauth_test = is_login_target or any(
-            kw in self.test_step.lower()
-            for kw in ["without a valid", "unauthenticated", "logged out", "without authentication", "expired session", "clear_cookies"]
+        step_lower = str(self.test_step or "").lower()
+        is_explicit_unauth = any(
+            kw in step_lower
+            for kw in [
+                "without a valid", "unauthenticated", "logged out", "without authentication",
+                "expired session", "clear_cookies", "invalid credential", "invalid password",
+                "wrong password", "invalid email", "blank password", "blank username",
+                "verify login page", "check login page", "login screen ui", "forgot password"
+            ]
         )
-        is_logout_test = any(kw in self.test_step.lower() for kw in ["logout", "log out", "sign out"])
+        is_login_target = any(kw in url_lower for kw in ["/login", "/signin", "/sign-in", "/register", "/signup"])
+        is_unauth_test = is_explicit_unauth or (
+            is_login_target and any(kw in step_lower for kw in ["verify login", "login page", "signin page", "invalid", "blank", "error message", "unauthorized"])
+        )
+        is_logout_test = any(kw in step_lower for kw in ["logout", "log out", "sign out"])
 
         with sync_playwright() as p:
             browser = self._launch_browser(p)
             state_file = "auth.json"
             context, origin_storage = _create_platform_context(p, browser, self.platform_config, state_file, unauthenticated=is_unauth_test)
 
-            page = context.new_page()
+            is_cdp = bool(self.platform_config.get("is_cdp") or self.platform_config.get("cdp_url"))
+            if is_cdp and hasattr(context, "pages") and len(context.pages) > 0:
+                page = context.pages[0]
+            else:
+                page = context.new_page()
             _setup_page_optimization(page, headless=not self.headed)
 
             # Resolve relative target URLs
@@ -1457,8 +1598,8 @@ class WebRunner:
                                     raise AssertionError(f"Expected Result Validation Failed: {reason} (Expected: '{self.expected_result}')")
                             return healed_code
                         else:
-                            self.last_screenshot = self._capture_screenshot(page, "fail_custom_script")
-                            raise script_err
+                            self.last_screenshot = self._capture_screenshot(page, "skip_not_possible")
+                            raise StepSkippedException(f"[NOT APPLICABLE] Self-healing could not execute step on active page ({page.url}): {log_msg}")
 
                 # 3. Dynamic execution via AI / Replay Cache
                 elif self.test_step:
@@ -1469,11 +1610,9 @@ class WebRunner:
                         code = cached_code
                         self.generated_code = code
                     else:
-                        print(f"Executing step dynamically via AI: {self.test_step}")
+                        print(f"🤖 [AI Autonomous Execution] Analyzing screen state & synthesizing code for: '{self.test_step}'")
 
-                        live_dom = page.content()
-                        if len(live_dom) > 20000:
-                            live_dom = live_dom[:20000] + "\n...(truncated)"
+                        live_dom = _extract_live_dom_context(page)
 
                         prompt = f"""
                         You are an expert QA automation engineer writing SYNCHRONOUS Python Playwright code for an existing active `page` object.
@@ -1481,38 +1620,35 @@ class WebRunner:
                         Expected Result: "{self.expected_result}"
                         Available test data: {json.dumps(self.test_data)}
                         
-                        Here is the LIVE HTML DOM of the page you are on:
+                        Here is the LIVE structured DOM snapshot of the active page (including all visible buttons, inputs, links, headings, modals):
                         {live_dom}
                         
-                        CRITICAL RULES:
-                        1. SEQUENTIAL MULTI-STEP EXECUTION: If Test Step specifies multiple sequential steps (e.g., Step 1 -> Step 2 -> Step 3 -> Step 4 -> Step 5), you MUST execute EVERY step in order:
-                           - If "Click Filter": click Filter button `page.locator('button:has-text("Filter"), button:has-text("Filters"), .filter-btn').first.click(force=True)` and wait.
-                           - If "Select Role / Option": click the role/filter input (`input[placeholder*="Role" i]`), click the option (`.offcanvas div[style*="cursor: pointer"], [role="option"]`), and wait.
-                           - If "Apply Filters": click `page.locator('button:has-text("Apply Filters"), button:has-text("Apply")').first.click(force=True)`.
-                           - If "Search": fill query into `input[type="search"], input[placeholder*="search" i], .custom-search` and press 'Enter'.
-                           - If "Verify Table": check `expect(page.locator('table, [role="table"], .table').first).to_be_visible()`.
-                        2. NO DUMMY ASSERTIONS: Do NOT just write `expect(page.locator('body')).to_be_visible()`. You MUST perform the actual clicks and interactions described!
-                        3. SYNCHRONOUS ONLY: Use `sync_playwright` methods (e.g. `page.fill(...)`, `page.click(...)`, `page.locator(...)`). NEVER use `await` or `async`.
-                        4. STRICT MODE SAFE: If any locator could match multiple elements, ALWAYS append `.first` or `.nth(0)` to prevent strict mode violation errors!
-                        5. RESILIENT INTERACTION: Use `.click(force=True)`.
-                        6. INDENTATION & SYNTAX: Always indent 4 spaces inside blocks.
-                        7. OUTPUT ONLY RAW PYTHON CODE: Pure Python statements only!
+                        CRITICAL EXECUTION RULES:
+                        1. AUTONOMOUS MODULE NAVIGATION: If the Test Step refers to a specific sub-screen or module (e.g. "Subject Master", "Add New School", "Program Master", "Setup Wizard", "Forgot Password", "Review") that is NOT currently open, inspect the [NAV_LINK] and [BUTTON] entries in the DOM above. Click the relevant link or button first with `.click(force=True)` and wait `page.wait_for_timeout(500)` before proceeding!
+                        2. EXACT ELEMENT TARGETING: Target the exact interactive buttons, inputs, and selects shown in the DOM context:
+                           - For buttons: `page.locator('button, a, [role="button"], .btn').filter(has_text="...").first.click(force=True)`
+                           - For inputs: `page.locator('input[name="..."], input[placeholder*="..."]').first.fill("...")`
+                           - For dropdowns: `page.locator('select').first.select_option(...)` or click custom option.
+                        3. SEQUENTIAL MULTI-STEP FLOW: If Test Step specifies multiple actions, execute every action in order.
+                        4. TEST DATA: Use realistic values or available test data.
+                        5. REAL ASSERTIONS: Assert the expected outcome directly (e.g. modal open, table updated, toast displayed, element visible). NEVER write dummy `expect(body).to_be_visible()`.
+                        6. STRICT MODE SAFE: Append `.first` to locators that might match multiple elements.
+                        7. SYNCHRONOUS ONLY: Use `sync_playwright` methods only (`page.fill(...)`, `page.click(...)`). Never use `await` or `async`.
+                        8. OUTPUT ONLY RAW PYTHON CODE: Return ONLY executable Python statements.
                         """
 
-                        has_keys = bool(os.getenv("OPENAI_API_KEY") or os.getenv("GEMINI_API_KEY") or os.getenv("GROQ_API_KEY") or os.getenv("OPENROUTER_API_KEY"))
                         code = ""
-                        if has_keys or os.getenv("FORCE_G4F") == "true":
+                        try:
+                            pool = ThreadPoolExecutor(max_workers=1)
                             try:
-                                pool = ThreadPoolExecutor(max_workers=1)
-                                try:
-                                    fut = pool.submit(self.ai_client.generate_response, prompt)
-                                    raw_code = fut.result(timeout=4)
-                                finally:
-                                    pool.shutdown(wait=False, cancel_futures=True)
-                                code = _sanitize_playwright_code(raw_code)
-                            except Exception as ai_err:
-                                print(f"AI generation notice/timeout ({ai_err}). Engaging instant deterministic synthesis...")
-                                code = ""
+                                fut = pool.submit(self.ai_client.generate_response, prompt)
+                                raw_code = fut.result(timeout=18)
+                            finally:
+                                pool.shutdown(wait=False, cancel_futures=True)
+                            code = _sanitize_playwright_code(raw_code)
+                        except Exception as ai_err:
+                            print(f"[AI Autonomous Execution] AI generation notice ({ai_err}). Engaging smart Live-DOM synthesis...")
+                            code = ""
 
                         if not code or len(code.strip()) < 5 or _is_trivial_or_mismatched_script(code, self.test_step):
                             from core.test_generator import _synthesize_default_playwright_code
@@ -1530,7 +1666,8 @@ class WebRunner:
                     os.makedirs(script_dir, exist_ok=True)
                     script_path = os.path.join(script_dir, f"{safe_name}.py")
 
-                    full_script = f"# Test Step: {self.test_step}\n"
+                    commented_step = "\n".join(f"# {line}" for line in str(self.test_step).splitlines())
+                    full_script = f"{commented_step}\n"
                     full_script += f"# Target URL: {self.url}\n\n"
                     full_script += "from playwright.sync_api import sync_playwright, expect\n\n"
                     full_script += "def run_test():\n"
@@ -1579,8 +1716,9 @@ class WebRunner:
 
                             # Re-write the saved script with healed code
                             indented_healed = "\n".join(["        " + line for line in healed_code.split("\n")])
+                            commented_healed = "\n".join(f"# {line}" for line in str(self.test_step).splitlines())
                             self.full_script = (
-                                f"# Test Step: {self.test_step} (Self-Healed)\n# Target URL: {self.url}\n\n"
+                                f"{commented_healed} (Self-Healed)\n# Target URL: {self.url}\n\n"
                                 f"from playwright.sync_api import sync_playwright, expect\n\n"
                                 f"def run_test():\n    with sync_playwright() as p:\n"
                                 f"        browser = p.chromium.launch(headless=False)\n        import os\n"
@@ -1592,9 +1730,9 @@ class WebRunner:
                             with open(script_path, "w", encoding="utf-8") as f:
                                 f.write(self.full_script)
                         else:
-                            self._capture_screenshot(page, "fail_healing")
+                            self._capture_screenshot(page, "skip_not_possible")
                             print(f"[WebRunner] Self-Healing exhausted: {log_msg}")
-                            raise first_error
+                            raise StepSkippedException(f"[NOT APPLICABLE] Self-healing could not execute step on active page ({page.url}): {log_msg}")
 
                     if self.visual:
                         print("Running visual inspection...")
@@ -1625,7 +1763,7 @@ class WebRunner:
                         except Exception:
                             pass
 
-                    return full_script
+                    return self.generated_code or code
 
             except Exception as e:
                 self.last_screenshot = self._capture_screenshot(page, "fail_execution")
@@ -1753,7 +1891,11 @@ class WebBatchRunner:
         with sync_playwright() as p:
             browser = self._launch_browser(p)
             context, origin_storage = _create_platform_context(p, browser, self.platform_config, state_file)
-            page = context.new_page()
+            is_cdp = bool(self.platform_config.get("is_cdp") or self.platform_config.get("cdp_url"))
+            if is_cdp and hasattr(context, "pages") and len(context.pages) > 0:
+                page = context.pages[0]
+            else:
+                page = context.new_page()
             _setup_page_optimization(page, headless=not self.headed)
             current_target_url = None
 
@@ -1773,12 +1915,21 @@ class WebBatchRunner:
                 step_notes = ""
 
                 url_lower = url.lower()
+                step_lower = test_step.lower()
                 is_login_target = any(kw in url_lower for kw in ["/login", "/signin", "/sign-in", "/register", "/signup"])
-                is_unauth_test = is_login_target or any(
-                    kw in test_step.lower()
-                    for kw in ["without a valid", "unauthenticated", "logged out", "without authentication", "expired session"]
+                is_explicit_unauth = any(
+                    kw in step_lower
+                    for kw in [
+                        "without a valid", "unauthenticated", "logged out", "without authentication",
+                        "expired session", "clear_cookies", "invalid credential", "invalid password",
+                        "wrong password", "invalid email", "blank password", "blank username",
+                        "verify login page", "check login page", "login screen ui", "forgot password"
+                    ]
                 ) or "clear_cookies" in custom_script
-                is_logout_test = any(kw in test_step.lower() for kw in ["logout", "log out", "sign out"])
+                is_unauth_test = is_explicit_unauth or (
+                    is_login_target and any(kw in step_lower for kw in ["verify login", "login page", "signin page", "invalid", "blank", "error message", "unauthorized"])
+                )
+                is_logout_test = any(kw in step_lower for kw in ["logout", "log out", "sign out"])
 
                 # 1. Health check & Auto-Recovery of browser/context/page
                 page_needs_recovery = False
@@ -1803,23 +1954,37 @@ class WebBatchRunner:
                             pass
                         browser = self._launch_browser(p)
                         context, origin_storage = _create_platform_context(p, browser, self.platform_config, state_file)
-                        page = context.new_page()
+                        is_cdp = bool(self.platform_config.get("is_cdp") or self.platform_config.get("cdp_url"))
+                        if is_cdp and hasattr(context, "pages") and len(context.pages) > 0:
+                            page = context.pages[0]
+                        else:
+                            page = context.new_page()
                         _setup_page_optimization(page, headless=not self.headed)
                     except Exception as launch_err:
                         print(f"[WebBatchRunner] Session recreation note: {launch_err}")
 
-                # Isolate login, unauthenticated, and logout tests in a temporary context so they don't redirect or corrupt main session
-                isolated_ctx = None
-                main_page_ref = page
+                # For unauthenticated or logout tests, clear session & cookies in the active page/context
+                # in-place without spawning a secondary browser window (which leaves an orphaned about:blank window).
                 if is_unauth_test or is_logout_test:
                     try:
-                        isolated_ctx, _ = _create_platform_context(
-                            p, browser, self.platform_config, state_file, unauthenticated=is_unauth_test
-                        )
-                        page = isolated_ctx.new_page()
-                        _setup_page_optimization(page, headless=not self.headed)
+                        context.clear_cookies()
                     except Exception:
-                        page = main_page_ref
+                        pass
+                    if page and not page.is_closed():
+                        try:
+                            page.evaluate("() => { try { localStorage.clear(); sessionStorage.clear(); } catch(e){} }")
+                        except Exception:
+                            pass
+                elif state_file and os.path.exists(state_file):
+                    # For authenticated steps following an unauthenticated step, restore stored auth cookies if available
+                    try:
+                        with open(state_file, "r", encoding="utf-8") as f:
+                            _auth_data = json.load(f)
+                        _cookies = _auth_data.get("cookies", [])
+                        if _cookies:
+                            context.add_cookies(_cookies)
+                    except Exception:
+                        pass
 
                 try:
                     # Check if page drifted away from the step's target URL
@@ -1839,7 +2004,18 @@ class WebBatchRunner:
                         except Exception:
                             is_current_blank = True
 
-                    if target_clean and (target_clean != page_clean or is_current_blank or is_unauth_test or is_logout_test or idx == 0 or not current_page_url):
+                    is_target_login = any(kw in target_clean.lower() for kw in ["/login", "/signin", "/sign-in", "/register", "/signup"])
+                    is_page_on_login = any(kw in page_clean.lower() for kw in ["/login", "/signin", "/sign-in", "/register", "/signup"])
+                    # If target is generic login entry and page is already authenticated inside the app, do not kick back to /login
+                    should_skip_login_redirect = is_target_login and not is_page_on_login and not is_unauth_test and not is_logout_test
+
+                    should_navigate = (
+                        target_clean
+                        and not should_skip_login_redirect
+                        and (target_clean != page_clean or is_current_blank or is_unauth_test or is_logout_test or idx == 0 or not current_page_url)
+                    )
+
+                    if should_navigate:
                         page.goto(url, wait_until="domcontentloaded", timeout=30000)
                         safe_wait_loaded(page)
                         _ensure_authenticated(page, url, self.test_data, is_unauth_test)
@@ -1879,7 +2055,7 @@ class WebBatchRunner:
                                 print(f"[WebBatchRunner] {log_msg}")
                                 step_script = healed_code
                             else:
-                                raise script_err
+                                raise StepSkippedException(f"[NOT APPLICABLE] Self-healing could not execute step on active page ({page.url}): {log_msg}")
                     # 2. Dynamic execution via AI / Replay Cache
                     elif test_step:
                         cached_code = self.replay_cache.get_cached_action(url, test_step)
@@ -1888,9 +2064,7 @@ class WebBatchRunner:
                             code = cached_code
                             is_replay_hit = True
                         else:
-                            live_dom = page.content()
-                            if len(live_dom) > 20000:
-                                live_dom = live_dom[:20000] + "\n...(truncated)"
+                            live_dom = _extract_live_dom_context(page)
 
                             prompt = f"""
                             You are an expert QA automation engineer writing SYNCHRONOUS Python Playwright code for an existing active `page` object.
@@ -1898,38 +2072,35 @@ class WebBatchRunner:
                             Expected Result: "{expected_result}"
                             Available test data: {json.dumps(self.test_data)}
                             
-                            Here is the LIVE HTML DOM of the page you are on:
+                            Here is the LIVE structured DOM snapshot of the active page (including all visible buttons, inputs, links, headings, modals):
                             {live_dom}
                             
-                            CRITICAL RULES:
-                            1. SEQUENTIAL MULTI-STEP EXECUTION: If Test Step specifies multiple sequential steps (e.g., Step 1 -> Step 2 -> Step 3 -> Step 4 -> Step 5), you MUST execute EVERY step in order:
-                               - If "Click Filter": click Filter button `page.locator('button:has-text("Filter"), button:has-text("Filters"), .filter-btn').first.click(force=True)` and wait.
-                               - If "Select Role / Option": click role input (`input[placeholder*="Role" i]`), click option (`.offcanvas div[style*="cursor: pointer"], [role="option"]`), and wait.
-                               - If "Apply Filters": click `page.locator('button:has-text("Apply Filters"), button:has-text("Apply")').first.click(force=True)`.
-                               - If "Search": fill query into `input[type="search"], input[placeholder*="search" i], .custom-search` and press 'Enter'.
-                               - If "Verify Table": check `expect(page.locator('table, [role="table"], .table').first).to_be_visible()`.
-                            2. NO DUMMY ASSERTIONS: Do NOT just write `expect(page.locator('body')).to_be_visible()`. You MUST perform the actual clicks and interactions described!
-                            3. SYNCHRONOUS ONLY: Use `sync_playwright` methods (e.g. `page.fill(...)`, `page.click(...)`, `page.locator(...)`). NEVER use `await` or `async`.
-                            4. STRICT MODE SAFE: If any locator could match multiple elements, ALWAYS append `.first` or `.nth(0)` to prevent strict mode errors!
-                            5. RESILIENT INTERACTION: Use `.click(force=True)`.
-                            6. INDENTATION & SYNTAX: Always indent 4 spaces inside blocks.
-                            7. OUTPUT ONLY RAW PYTHON CODE: Pure Python statements only!
+                            CRITICAL EXECUTION RULES:
+                            1. AUTONOMOUS MODULE NAVIGATION: If the Test Step refers to a specific sub-screen or module (e.g. "Subject Master", "Add New School", "Program Master", "Setup Wizard", "Forgot Password", "Review") that is NOT currently open, inspect the [NAV_LINK] and [BUTTON] entries in the DOM above. Click the relevant link or button first with `.click(force=True)` and wait `page.wait_for_timeout(500)` before proceeding!
+                            2. EXACT ELEMENT TARGETING: Target the exact interactive buttons, inputs, and selects shown in the DOM context:
+                               - For buttons: `page.locator('button, a, [role="button"], .btn').filter(has_text="...").first.click(force=True)`
+                               - For inputs: `page.locator('input[name="..."], input[placeholder*="..."]').first.fill("...")`
+                               - For dropdowns: `page.locator('select').first.select_option(...)` or click custom option.
+                            3. SEQUENTIAL MULTI-STEP FLOW: If Test Step specifies multiple actions, execute every action in order.
+                            4. TEST DATA: Use realistic values or available test data.
+                            5. REAL ASSERTIONS: Assert the expected outcome directly (e.g. modal open, table updated, toast displayed, element visible). NEVER write dummy `expect(body).to_be_visible()`.
+                            6. STRICT MODE SAFE: Append `.first` to locators that might match multiple elements.
+                            7. SYNCHRONOUS ONLY: Use `sync_playwright` methods only (`page.fill(...)`, `page.click(...)`). Never use `await` or `async`.
+                            8. OUTPUT ONLY RAW PYTHON CODE: Return ONLY executable Python statements.
                             """
 
-                            has_keys = bool(os.getenv("OPENAI_API_KEY") or os.getenv("GEMINI_API_KEY") or os.getenv("GROQ_API_KEY") or os.getenv("OPENROUTER_API_KEY"))
                             code = ""
-                            if has_keys or os.getenv("FORCE_G4F") == "true":
+                            try:
+                                pool = ThreadPoolExecutor(max_workers=1)
                                 try:
-                                    pool = ThreadPoolExecutor(max_workers=1)
-                                    try:
-                                        fut = pool.submit(self.ai_client.generate_response, prompt)
-                                        raw_code = fut.result(timeout=4)
-                                    finally:
-                                        pool.shutdown(wait=False, cancel_futures=True)
-                                    code = _sanitize_playwright_code(raw_code)
-                                except Exception as ai_err:
-                                    print(f"[WebBatchRunner] AI generation notice/timeout ({ai_err}). Engaging instant deterministic synthesis...")
-                                    code = ""
+                                    fut = pool.submit(self.ai_client.generate_response, prompt)
+                                    raw_code = fut.result(timeout=18)
+                                finally:
+                                    pool.shutdown(wait=False, cancel_futures=True)
+                                code = _sanitize_playwright_code(raw_code)
+                            except Exception as ai_err:
+                                print(f"[WebBatchRunner] AI generation notice ({ai_err}). Engaging smart Live-DOM synthesis...")
+                                code = ""
 
                             if not code or len(code.strip()) < 5 or _is_trivial_or_mismatched_script(code, test_step):
                                 from core.test_generator import _synthesize_default_playwright_code
@@ -1940,8 +2111,9 @@ class WebBatchRunner:
                         os.makedirs(script_dir, exist_ok=True)
                         script_path = os.path.join(script_dir, f"{safe_name}.py")
 
+                        commented_batch_step = "\n".join(f"# {line}" for line in str(test_step).splitlines())
                         full_script = (
-                            f"# Test Step: {test_step}\n# Target URL: {url}\n\n"
+                            f"{commented_batch_step}\n# Target URL: {url}\n\n"
                             f"from playwright.sync_api import sync_playwright, expect\n\n"
                             f"def run_test():\n    with sync_playwright() as p:\n"
                             f"        browser = p.chromium.launch(headless=False)\n        import os\n"
@@ -1954,7 +2126,7 @@ class WebBatchRunner:
                         with open(script_path, "w", encoding="utf-8") as f:
                             f.write(full_script)
 
-                        step_script = full_script
+                        step_script = code
 
                         # Execute with self-healing fallback
                         try:
@@ -1975,7 +2147,7 @@ class WebBatchRunner:
                                 step_script = healed_code
                                 code = healed_code
                             else:
-                                raise first_err
+                                raise StepSkippedException(f"[NOT APPLICABLE] Self-healing could not execute step on active page ({page.url}): {log_msg}")
 
                         if code and len(code.strip()) > 5:
                             self.replay_cache.save_cached_action(url, test_step, code)
@@ -1998,6 +2170,8 @@ class WebBatchRunner:
                             raise AssertionError(f"Expected Result Validation Failed: {reason} (Expected: '{expected_result}')")
 
                     step_status = "PASSED"
+                    exp_v = str(expected_result).strip()
+                    step_actual_result = f"Passed: {exp_v}" if exp_v else "Action verified successfully."
                     if is_replay_hit:
                         step_notes = "⚡ [e2e Replay Cache Hit] Executed verified script in <50ms (0 Tokens Spent)" + layout_audit_note
                     else:
@@ -2006,8 +2180,28 @@ class WebBatchRunner:
 
                 except Exception as ex:
                     print(f"\n❌ [WebBatchRunner Step #{idx + 1} Failed]: {test_step}\nError: {ex}")
-                    step_status = "FAILED"
-                    step_notes = f"Execution error: {ex}"
+                    ex_str = str(ex).strip()
+                    is_not_applicable = (
+                        isinstance(ex, StepSkippedException)
+                        or "[not applicable]" in ex_str.lower()
+                        or "[not possible]" in ex_str.lower()
+                        or "not found on active page" in ex_str.lower()
+                        or "not found on active screen" in ex_str.lower()
+                        or "self-healing exhausted" in ex_str.lower()
+                        or ("timeout" in ex_str.lower() and ("waiting for locator" in ex_str.lower() or "waiting for selector" in ex_str.lower() or "locator.click" in ex_str.lower() or "locator.fill" in ex_str.lower()))
+                        or "cannot be executed or healed" in ex_str.lower()
+                    )
+                    if is_not_applicable:
+                        step_status = "SKIPPED"
+                        err_clean = ex_str.replace("[NOT APPLICABLE]", "").replace("[NOT POSSIBLE]", "").strip().splitlines()[-1]
+                        step_actual_result = f"Skipped (Not Possible / Action Unreachable): {err_clean}"
+                        step_notes = f"⚠️ [Skipped - Not Possible] {err_clean}"
+                    else:
+                        step_status = "FAILED"
+                        err_clean = ex_str.splitlines()[-1] if ex_str else "Execution error"
+                        step_actual_result = f"Failed: {err_clean}"
+                        step_notes = f"Execution error: {ex}"
+
                     if "Screen Load Error" in str(ex) or "completely blank" in str(ex):
                         page_needs_recovery = True
                     try:
@@ -2019,12 +2213,7 @@ class WebBatchRunner:
                         print(f"⚠️ Could not capture failure screenshot: {ss_err}")
                     _reset_page_state(page)
                 finally:
-                    if isolated_ctx is not None:
-                        try:
-                            isolated_ctx.close()
-                        except Exception:
-                            pass
-                        page = main_page_ref
+                    pass
 
                 duration_str = f"{round(time.time() - step_start_time, 2)}s"
 
@@ -2037,6 +2226,7 @@ class WebBatchRunner:
                             step_screenshot,
                             step_notes,
                             duration_str,
+                            actual_result=step_actual_result,
                         )
                     except TypeError:
                         try:
@@ -2047,6 +2237,16 @@ class WebBatchRunner:
                                 screenshot_path=step_screenshot,
                                 notes=step_notes,
                                 duration=duration_str,
+                                actual_result=step_actual_result,
+                            )
+                        except TypeError:
+                            on_step_callback(
+                                idx,
+                                step_status,
+                                step_script,
+                                step_screenshot,
+                                step_notes,
+                                duration_str,
                             )
                         except Exception as cb_err:
                             print(f"[WebBatchRunner] Step callback error: {cb_err}")

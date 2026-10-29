@@ -1,42 +1,96 @@
+import io
 import os
 import re
+import sys
+import shutil
+import socket
 import subprocess
 import requests
 import collections
-from typing import List, Dict, Any, Optional
+import concurrent.futures
+from typing import List, Dict, Any, Optional, Tuple
 
 
 _CACHED_ADB_PATH = None
+_ACTIVE_FORWARDED_PORT = 9222
 
 
 def get_adb_path() -> Optional[str]:
-    """Finds adb executable on system PATH or default Android SDK locations."""
+    """
+    Finds adb executable on system PATH or default Android SDK locations across
+    Windows, macOS (Apple Silicon & Intel), and Linux.
+    """
     global _CACHED_ADB_PATH
     if _CACHED_ADB_PATH is not None:
         return _CACHED_ADB_PATH
 
-    found = None
-    try:
-        res = subprocess.run(["where", "adb"], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=2)
-        if res.returncode == 0 and res.stdout and res.stdout.strip():
-            found = res.stdout.strip().splitlines()[0]
-    except Exception:
-        pass
+    # 1. Check system PATH via shutil.which (cross-platform)
+    found = shutil.which("adb") or shutil.which("adb.exe")
 
+    # 2. Windows-specific 'where' fallback
+    if not found and sys.platform == "win32":
+        try:
+            res = subprocess.run(["where", "adb"], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=2)
+            if res.returncode == 0 and res.stdout and res.stdout.strip():
+                found = res.stdout.strip().splitlines()[0]
+        except Exception:
+            pass
+
+    # 3. Platform-specific known directory candidates
     if not found:
-        user_profile = os.environ.get("USERPROFILE", "")
-        local_app_data = os.environ.get("LOCALAPPDATA", "")
+        home = os.path.expanduser("~")
         candidates = [
-            os.path.join(local_app_data, "Android", "Sdk", "platform-tools", "adb.exe"),
-            os.path.join(user_profile, "AppData", "Local", "Android", "Sdk", "platform-tools", "adb.exe"),
+            # macOS Homebrew (Apple Silicon M1/M2/M3/M4 & Intel)
+            "/opt/homebrew/bin/adb",
+            "/usr/local/bin/adb",
+            # macOS Android Studio SDK
+            os.path.join(home, "Library", "Android", "sdk", "platform-tools", "adb"),
+            # Linux Android SDK
+            os.path.join(home, "Android", "Sdk", "platform-tools", "adb"),
+            "/usr/bin/adb",
+            # Windows Android SDK
+            os.path.join(os.environ.get("LOCALAPPDATA", ""), "Android", "Sdk", "platform-tools", "adb.exe"),
+            os.path.join(os.environ.get("USERPROFILE", ""), "AppData", "Local", "Android", "Sdk", "platform-tools", "adb.exe"),
         ]
         for c in candidates:
-            if os.path.exists(c):
+            if os.path.isfile(c) and (not hasattr(os, "X_OK") or os.access(c, os.X_OK) or c.endswith(".exe")):
                 found = c
                 break
 
     _CACHED_ADB_PATH = found or "adb"
     return _CACHED_ADB_PATH
+
+
+def find_free_port(start_port: int = 9222, max_attempts: int = 30) -> int:
+    """Finds the first available local TCP port starting from start_port, skipping macOS AirPlay ports."""
+    for p in range(start_port, start_port + max_attempts):
+        # Skip macOS AirPlay Receiver reserved ports
+        if p in [5000, 7000]:
+            continue
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.settimeout(0.15)
+                res = s.connect_ex(("127.0.0.1", p))
+                if res != 0:
+                    return p
+        except Exception:
+            return p
+    return start_port
+
+
+def reset_all_device_forwards(serial: Optional[str] = None) -> bool:
+    """Clears all active ADB port forwarding tunnels to eliminate zombie/conflicting mappings."""
+    adb = get_adb_path()
+    cmd = [adb]
+    if serial:
+        cmd.extend(["-s", serial])
+    cmd.extend(["forward", "--remove-all"])
+    try:
+        res = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=3)
+        return res.returncode == 0
+    except Exception as e:
+        print(f"[DeviceBridge] Error removing all forwards: {e}")
+        return False
 
 
 def list_connected_adb_devices() -> List[Dict[str, str]]:
@@ -130,7 +184,7 @@ def list_device_inspectable_sockets(serial: Optional[str] = None) -> List[Dict[s
     cmd.extend(["shell", "cat", "/proc/net/unix"])
 
     try:
-        res = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=4)
+        res = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=3)
         if res.returncode != 0 or not res.stdout:
             return []
 
@@ -158,7 +212,7 @@ def list_device_inspectable_sockets(serial: Optional[str] = None) -> List[Dict[s
                             if serial:
                                 cmd_pkg.extend(["-s", serial])
                             cmd_pkg.extend(["shell", f"cat /proc/{pid}/cmdline"])
-                            res_pkg = subprocess.run(cmd_pkg, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=2)
+                            res_pkg = subprocess.run(cmd_pkg, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=1.5)
                             if res_pkg.returncode == 0 and res_pkg.stdout:
                                 pkg_name = res_pkg.stdout.strip().replace("\x00", "")
                         except Exception:
@@ -238,35 +292,70 @@ def launch_app_on_device(package_name: str, serial: Optional[str] = None) -> boo
         return False
 
 
-def forward_device_port(socket_name: str = "chrome_devtools_remote", local_port: int = 9222, serial: Optional[str] = None) -> bool:
-    """Sets up adb forward tcp:<local_port> localabstract:<socket_name>."""
+def get_active_forwarded_port() -> int:
+    """Returns the most recently forwarded local TCP port."""
+    return _ACTIVE_FORWARDED_PORT
+
+
+def forward_device_port(
+    socket_name: str = "chrome_devtools_remote",
+    local_port: int = 9222,
+    serial: Optional[str] = None,
+    auto_port: bool = False,
+) -> bool:
+    """
+    Sets up adb forward tcp:<local_port> localabstract:<socket_name> with conflict resolution
+    and active port tracking.
+    """
+    global _ACTIVE_FORWARDED_PORT
     adb = get_adb_path()
+    clean_socket = socket_name.lstrip("@")
+
+    target_port = local_port
+    if auto_port:
+        target_port = find_free_port(start_port=local_port)
+
+    # Pre-clean any dead rule for this port to prevent zombie conflicts
+    try:
+        rm_cmd = [adb]
+        if serial:
+            rm_cmd.extend(["-s", serial])
+        rm_cmd.extend(["forward", "--remove", f"tcp:{target_port}"])
+        subprocess.run(rm_cmd, capture_output=True, timeout=1.5)
+    except Exception:
+        pass
+
     cmd = [adb]
     if serial:
         cmd.extend(["-s", serial])
-    clean_socket = socket_name.lstrip("@")
-    cmd.extend(["forward", f"tcp:{local_port}", f"localabstract:{clean_socket}"])
+    cmd.extend(["forward", f"tcp:{target_port}", f"localabstract:{clean_socket}"])
 
     try:
         res = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=3)
-        return res.returncode == 0
+        if res.returncode == 0:
+            _ACTIVE_FORWARDED_PORT = target_port
+            return True
+        return False
     except Exception as e:
         print(f"[DeviceBridge] Error forwarding port: {e}")
         return False
 
 
-def fetch_cdp_targets(endpoint: str = "http://localhost:9222") -> List[Dict[str, Any]]:
+def fetch_cdp_targets(endpoint: str = "http://127.0.0.1:9222") -> List[Dict[str, Any]]:
     """
     Queries /json/list from the CDP endpoint to discover active pages, tabs, or webview screens.
+    Enforces IPv4 (127.0.0.1) to avoid macOS / Web IPv6 loopback timeouts.
     Returns: [{"id": "...", "title": "Dashboard", "url": "http://...", "type": "page"}]
     """
     clean_endpoint = endpoint.rstrip("/")
     if not clean_endpoint.startswith("http://") and not clean_endpoint.startswith("https://"):
         clean_endpoint = f"http://{clean_endpoint}"
+    # Standardize localhost to 127.0.0.1 to avoid IPv6 [::1] resolution hang
+    clean_endpoint = clean_endpoint.replace("://localhost:", "://127.0.0.1:")
 
     try:
         url = f"{clean_endpoint}/json/list"
-        resp = requests.get(url, timeout=1.5)
+        resp = requests.get(url, timeout=1.2)
         if resp.status_code == 200:
             targets = resp.json()
             if isinstance(targets, list):
@@ -765,11 +854,13 @@ def explore_android_app_flow(
         ss_filename = f"mobile_flow_{screen_idx}_{clean_pkg}_{ts}.png"
         ss_path = os.path.join(reports_dir, ss_filename)
 
-        # Capture live screen
-        capture_device_screenshot(ss_path, serial=serial)
+        # Concurrently capture live screen and dump UI hierarchy (cuts latency in half)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+            fut_ss = executor.submit(capture_device_screenshot, ss_path, serial=serial)
+            fut_elems = executor.submit(dump_native_ui_elements, serial=serial)
+            fut_ss.result()
+            elements = fut_elems.result()
 
-        # Dump native elements
-        elements = dump_native_ui_elements(serial=serial)
         if not elements:
             consecutive_empty += 1
             if consecutive_empty >= 2:

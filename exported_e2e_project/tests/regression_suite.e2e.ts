@@ -5,13 +5,11 @@ import { test, expect } from './fixtures';
 test("Test #1: Step 1: Navigate to target URL -> Step 2: Locate overview section -> Step 3: Cli", async ({ page, app, agent }) => {
   // Goal: Step 1: Navigate to target URL -> Step 2: Locate overview section -> Step 3: Cli
   await page.waitForLoadState('domcontentloaded');
-  try:;
-  page.evaluate("() => document.querySelectorAll('.modal-backdrop, .offcanvas-backdrop').forEach(e => e.remove())");
-  except Exception:;
-  pass;
+  try {
+    await page.evaluate("() => document.querySelectorAll('.modal-backdrop, .offcanvas-backdrop').forEach(e => e.remove())");
+  } catch (e) {}
   const c = page.locator('button, a, [role="button"], [role="tab"], input[type="submit"], input[type="button"], .btn').filter({ hasText: "1. OVERVIEW & SETUP" }).first();
-  // Step condition: c.count() > 0
-  c.scroll_into_view_if_needed(timeout=1500);
+  await c.scrollIntoViewIfNeeded({ timeout: 1500 }).catch(() => {});
   await c.click({ force: true });
   await page.waitForTimeout(400);
   await expect(page.locator('body')).toBeVisible();
@@ -23,8 +21,8 @@ test("Test #2: Step 1: Navigate to target URL -> Step 2: Click '2. DOCUMENT CHEC
   await page.goto('https://shah-consultancy.netlify.app/claims/file3');
   await page.locator('button:has-text("2. DOCUMENT CHECKLIST")').click();
   const checkbox = page.locator('input[name="subsidyDocCheck"]');
-  checkbox.check();
-  await expect(checkbox).toBe_checked();
+  await checkbox.check();
+  await expect(checkbox).toBeChecked();
   await agent.assert("Document checklist section opens and checkbox successfully changes state from unchecked to checked.");
 });
 
@@ -44,7 +42,7 @@ test("Test #4: Step 1: Navigate to target URL -> Step 2: Locate search input -> 
   const search_input = page.locator('input[placeholder*="Search for files"]');
   await search_input.fill('<script>alert(1)</script>');
   await search_input.press('Enter');
-  await expect(page.locator('text=script')).not_to_be_attached();
+  await expect(page.locator('text=script')).not.toBeAttached();
   await agent.assert("Input sanitizes special characters and script execution does not occur, verifying XSS boundary resistance.");
 });
 
@@ -53,7 +51,7 @@ test("Test #5: Step 1: Navigate to target URL -> Step 2: Click 'Head of Document
   await page.goto('https://shah-consultancy.netlify.app/claims/file3');
   const dropdown = page.locator('select, [role="combobox"]').filter({ hasText: 'Head of Document Collector' });
   await dropdown.click();
-  page.locator('text=Select Option, option').first().click();
+  await page.locator('text=Select Option, option').first().click();
   await expect(dropdown).toBeVisible();
   await agent.assert("Dropdown opens, displays options correctly, and retains the selected collector name upon selection.");
 });
@@ -61,7 +59,7 @@ test("Test #5: Step 1: Navigate to target URL -> Step 2: Click 'Head of Document
 test("Test #6: Step 1: Navigate to target URL -> Step 2: Locate date input fields -> Step 3: En", async ({ page, app, agent }) => {
   // Goal: Step 1: Navigate to target URL -> Step 2: Locate date input fields -> Step 3: En
   await page.goto('https://shah-consultancy.netlify.app/claims/file3');
-  const date_field = page.locator('input[type="date"]').first()();
+  const date_field = page.locator('input[type="date"]').first();
   await date_field.fill('2026-13-45');
   await expect(date_field).toHaveValue('');
   await agent.assert("Browser or component validation triggers native error state, blocking submission of invalid date formats.");
@@ -86,10 +84,10 @@ test("Test #8: Step 1: Navigate to target URL -> Step 2: Click 'Save Setup Detai
 test("Test #9: Step 1: Navigate to target URL -> Step 2: Click 'WhatsApp' interaction button ->", async ({ page, app, agent }) => {
   // Goal: Step 1: Navigate to target URL -> Step 2: Click 'WhatsApp' interaction button ->
   await page.goto('https://shah-consultancy.netlify.app/claims/file3');
-  with page.expect_popup() as page_info:;
+  const popupPromise = page.waitForEvent('popup');
   await page.locator('button:has-text("WhatsApp")').click();
-  whatsapp_page = page_info.value;
-  await expect(whatsapp_page).toHaveURL(re.compile('whatsapp|api.whatsapp'));
+  const whatsapp_page = await popupPromise;
+  await expect(whatsapp_page).toHaveURL(/whatsapp|api\.whatsapp/);
   await agent.assert("WhatsApp integration triggers successfully, opening the appropriate chat interface link or protocol handler.");
 });
 
@@ -105,7 +103,7 @@ test("Test #11: Step 1: Navigate to target URL -> Step 2: Click 'Sign Out' butto
   // Goal: Step 1: Navigate to target URL -> Step 2: Click 'Sign Out' button -> Step 3: Ver
   await page.goto('https://shah-consultancy.netlify.app/claims/file3');
   await page.locator('button:has-text("Sign Out")').click();
-  await expect(page).toHaveURL(re.compile('login|auth|netlify.app'));
+  await expect(page).toHaveURL(/login|auth|netlify\.app/);
   await agent.assert("User session is destroyed, cookies are cleared, and browser successfully redirects to the authentication or landing page.");
 });
 
@@ -113,8 +111,8 @@ test("Test #12: Step 1: Open page -> Step 2: Press 'Tab' repeatedly across inter
   // Goal: Step 1: Open page -> Step 2: Press 'Tab' repeatedly across interactive elements
   await page.goto('https://shah-consultancy.netlify.app/claims/file3');
   await page.keyboard.press('Tab');
-  focused_element = page.evaluate('document.activeElement.tagName');
-  await expect(focused_element).toBeTruthy();
+  const focused_element = await page.evaluate(() => document.activeElement ? document.activeElement.tagName : null);
+  expect(focused_element).toBeTruthy();
   await agent.assert("All interactive elements receive keyboard focus in logical DOM sequence, meeting WCAG 2.1 keyboard accessibility guidelines.");
 });
 
@@ -122,11 +120,12 @@ test("Test #13: Step 1: Inspect page elements for ARIA accessibility compliance 
   // Goal: Step 1: Inspect page elements for ARIA accessibility compliance -> Step 2: Verif
   await page.goto('https://shah-consultancy.netlify.app/claims/file3');
   const buttons = page.locator('button');
-  count = buttons.count();
-  for i in range(count):;
-  btn = buttons.nth(i);
-  name = btn.inner_text() or btn.get_attribute('aria-label');
-  assert name is not null;
+  const count = await buttons.count();
+  for (let i = 0; i < count; i++) {
+    const btn = buttons.nth(i);
+    const text = (await btn.innerText().catch(() => '')) || (await btn.getAttribute('aria-label').catch(() => ''));
+    expect(text !== null).toBeTruthy();
+  }
   await agent.assert("Screen reader accessibility checks pass with zero missing aria-label or alt attribute violations on interactive controls.");
 });
 
@@ -145,6 +144,6 @@ test("API: Test #15: Step 1: Direct API request simulation with malformed payloa
 test("Test #16: Step 1: Attempt unauthorized direct URL access to restricted internal claim mana", async ({ page, app, agent }) => {
   // Goal: Step 1: Attempt unauthorized direct URL access to restricted internal claim mana
   await page.goto('https://shah-consultancy.netlify.app/claims/file3?admin=true');
-  await expect(page.locator('text=Unauthorized, Access Denied')).not_to_be_visible();
+  await expect(page.locator('text=Unauthorized, Access Denied')).not.toBeVisible();
   await agent.assert("Role-Based Access Control (RBAC) intercepts unauthorized navigation, securing sensitive endpoints.");
 });

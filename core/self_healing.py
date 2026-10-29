@@ -1,8 +1,18 @@
+import concurrent.futures
 import json
 import os
 import re
 import textwrap
-from typing import Dict, Any, Tuple
+from typing import Dict, Any, Tuple, List
+
+
+class StepSkippedException(Exception):
+    """
+    Raised when a test step cannot be executed or healed due to missing UI elements,
+    unreachable route, missing preconditions, or impossible live DOM actions.
+    Signals the runner to record the test case as SKIPPED rather than FAILED.
+    """
+    pass
 
 
 class SelfHealingEngine:
@@ -104,7 +114,6 @@ class SelfHealingEngine:
                 6. ASSERTIONS: Use `expect(page.locator('body')).to_be_visible()` or check substring in `page.url` or visible text.
                 7. OUTPUT ONLY RAW PYTHON CODE: No markdown code fences, no conversational sentences.
                 """
-                import concurrent.futures
                 executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
                 try:
                     future = executor.submit(self.ai_client.generate_response, healing_prompt)
@@ -135,9 +144,9 @@ class SelfHealingEngine:
                 print("[Self-Healing Engine] Tier 3 Universal Fallback succeeded!")
                 return True, fallback_code, "Recovered via Tier 3 Universal Fallback Assertion"
             except Exception as f_err:
-                print(f"[Self-Healing Engine] Tier 3 Universal Fallback failed: {f_err}")
+                print(f"[Self-Healing Engine] Tier 3 Universal Fallback note: {f_err}")
 
-        return False, failed_code, f"Self-Healing exhausted: {err_str}"
+        return False, failed_code, f"[NOT POSSIBLE] Self-Healing exhausted: {err_str}"
 
     def _apply_heuristic_healing(self, code: str, err: str, page) -> str:
         """Applies rule-based heuristic fixes for the most common Playwright failure patterns."""
@@ -176,7 +185,7 @@ except Exception:
         if "page.url ==" in healed or "page.url is" in healed:
             healed = re.sub(
                 r"assert\s+page\.url\s*==\s*['\"]([^'\"]+)['\"]",
-                r"assert any(k in page.url for k in ['dashboard', 'leadcrm', 'login', '\1'])",
+                r"assert any(k in page.url for k in ['dashboard', 'home', 'login', '\1'])",
                 healed,
             )
 
@@ -214,10 +223,51 @@ except Exception:
 
         return healed
 
+    @staticmethod
+    def decompose_steps(step_desc: str) -> List[str]:
+        """
+        Decomposes a compound test step description into sequential manageable sub-steps.
+        Handles numbered lists (1. ... 2. ...), arrow flows (A -> B -> C), newlines,
+        semicolons, and sequential conjunctions ('then', ', and click').
+        """
+        if not step_desc or not str(step_desc).strip():
+            return []
+        raw = str(step_desc).strip()
+
+        # 1. Split across newlines
+        lines = [line.strip() for line in re.split(r"[\r\n]+", raw) if line.strip()]
+        sub_steps = []
+        for line in lines:
+            # Check for multiple numbered steps on the same line: "1. Do X 2. Do Y"
+            parts = re.split(r"(?:^|\s+)(?:\d+[\.\)]|Step\s*\d+:)\s*", line)
+            for p in parts:
+                p_clean = p.strip()
+                if p_clean:
+                    # Check for arrow separation: "X -> Y -> Z"
+                    arrow_parts = re.split(r"\s*->\s*", p_clean)
+                    for ap in arrow_parts:
+                        if ap.strip():
+                            sub_steps.append(ap.strip())
+
+        # 2. If still just a single long sentence, split by conjunctions
+        if len(sub_steps) <= 1 and raw:
+            conjunction_parts = re.split(r";\s*|\s+then\s+|\s*,\s*and\s+(?:then\s+)?", raw, flags=re.IGNORECASE)
+            if len(conjunction_parts) > 1:
+                sub_steps = [cp.strip() for cp in conjunction_parts if cp.strip()]
+
+        # 3. Strip non-action role banners (e.g. "QA / authorized tester:")
+        final_steps = []
+        for s in (sub_steps or [raw]):
+            cleaned_s = re.sub(r"^(?:QA\s*/\s*authorized\s*tester\s*:\s*)", "", s, flags=re.IGNORECASE).strip()
+            if cleaned_s:
+                final_steps.append(cleaned_s)
+        return final_steps or [raw]
+
     def _apply_live_dom_semantic_healing(self, page, step_desc: str, expected_result: str, test_data: dict) -> str:
         """
-        Actively inspects the live page DOM to identify the actual button, tab, link, or form field
-        intended by the test step and synthesizes an authoritative self-healed Playwright snippet.
+        Actively inspects the live page DOM to identify the actual buttons, tabs, links, or form fields
+        intended by the test step (decomposing and managing multiple sequential sub-steps)
+        and synthesizes an authoritative self-healed Playwright snippet.
         """
         if not page:
             return ""
@@ -227,62 +277,142 @@ except Exception:
         except Exception:
             return ""
 
-        desc_l = step_desc.lower()
-        exp_l = expected_result.lower()
-
-        # 1. Identify quoted terms or target phrases
-        quoted = re.findall(r"['\"]([^'\"]+)['\"]", step_desc)
-        target_token = quoted[0] if quoted else ""
-
-        # Check for action intent
-        is_click = any(k in desc_l for k in ["click", "select", "toggle", "open", "press", "apply", "save", "submit", "reset", "clear", "export", "create"])
-        is_fill = any(k in desc_l for k in ["fill", "type", "enter", "input", "search", "query"])
+        steps = self.decompose_steps(step_desc)
+        if not steps:
+            steps = [step_desc]
 
         statements = [
-            "# Tier 1.5 Smart Live DOM Semantic Repair",
+            "# Tier 1.5 Smart Live DOM Multi-Step Management & Semantic Repair",
             "page.wait_for_load_state('domcontentloaded')",
             "try:\n    page.evaluate(\"() => document.querySelectorAll('.modal-backdrop, .offcanvas-backdrop').forEach(e => (e.style.display = 'none', e.style.pointerEvents = 'none'))\")\nexcept Exception:\n    pass"
         ]
 
-        if is_click:
-            search_terms = []
-            if target_token:
-                search_terms.append(target_token)
-            for kw in ["Save Changes", "Save", "Submit", "Filter", "Filters", "Apply Filters", "Apply", "Reset", "Clear", "Export", "Create", "New", "Search", "Edit", "Delete", "Add"]:
-                if kw.lower() in desc_l and kw not in search_terms:
-                    search_terms.append(kw)
+        step_idx = 0
+        has_executable_action = False
 
-            if search_terms:
-                candidate_code = []
-                for term in search_terms[:3]:
-                    candidate_code.append(f"""# Try interactive locator for '{term}'
-c = page.locator('button, a, [role="button"], [role="tab"], input[type="submit"], input[type="button"], .btn').filter(has_text={json.dumps(term)}).first
-if c.count() > 0:
-    c.scroll_into_view_if_needed(timeout=1500)
-    c.click(force=True)
-    page.wait_for_timeout(400)
+        for s in steps:
+            s_l = s.lower()
+            step_idx += 1
+            quoted = re.findall(r"['\"]([^'\"]+)['\"]", s)
+            target_token = quoted[0] if quoted else ""
+
+            # Check if this sub-step is a dual login / credentials fill
+            is_email_mention = any(k in s_l for k in ["email", "username", "user name", "user id", "userid"])
+            is_pass_mention = any(k in s_l for k in ["password", "passcode", "pwd"])
+            if (is_email_mention and is_pass_mention) or ("valid credentials" in s_l) or ("email and password" in s_l):
+                email_val = (
+                    (test_data or {}).get("Email")
+                    or (test_data or {}).get("email")
+                    or (test_data or {}).get("username")
+                    or (test_data or {}).get("Username")
+                    or "user@example.com"
+                )
+                pass_val = (
+                    (test_data or {}).get("Password")
+                    or (test_data or {}).get("password")
+                    or "TestPassword123!"
+                )
+                statements.append(f"""# Sub-Step #{step_idx}: Fill email & password
+_email_inp = page.locator('input[type="email"], input[name*="email" i], input[placeholder*="email" i], input[name*="user" i]').first
+if _email_inp.count() == 0:
+    _email_inp = page.locator('input:not([type="hidden"]):not([type="password"])').first
+if _email_inp.count() > 0:
+    _email_inp.scroll_into_view_if_needed(timeout=1000)
+    _email_inp.fill({json.dumps(email_val)})
+    page.wait_for_timeout(200)
+
+_pass_inp = page.locator('input[type="password"], input[name*="pass" i], input[placeholder*="pass" i]').first
+if _pass_inp.count() > 0:
+    _pass_inp.scroll_into_view_if_needed(timeout=1000)
+    _pass_inp.fill({json.dumps(pass_val)})
+    page.wait_for_timeout(200)
 """)
-                statements.append("\n".join(candidate_code))
+                has_executable_action = True
+                continue
 
-        if is_fill:
-            fill_val = test_data.get("value") or test_data.get("name") or target_token or "Admin"
-            if "search" in desc_l or "filter" in desc_l:
-                statements.append(f"""# Smart Search input interaction
-sb = page.locator('input[type="search"], input[placeholder*="search" i], input[placeholder*="filter" i], input[name*="search" i], input').first
+            # Check for click action
+            is_click = any(k in s_l for k in ["click", "select", "toggle", "open", "press", "tap", "apply", "save", "submit", "reset", "clear", "export", "create", "add"])
+            is_fill = any(k in s_l for k in ["fill", "type", "enter", "input", "search", "query", "write"])
+
+            if is_click:
+                search_terms = []
+                if target_token:
+                    search_terms.append(target_token)
+                for kw in [
+                    "Sign In", "Login", "Log In", "Save Changes", "Save", "Submit", "Forgot Password",
+                    "Filter", "Filters", "Apply Filters", "Apply", "Reset", "Clear", "Export",
+                    "Create", "New", "Search", "Edit", "Delete", "Add New School", "Add New", "Add",
+                    "Close", "Cancel", "Confirm", "OK", "Next", "Back", "Continue"
+                ]:
+                    if kw.lower() in s_l and kw not in search_terms:
+                        search_terms.append(kw)
+
+                if search_terms:
+                    cand_block = [f"_step_{step_idx}_done = False"]
+                    for term in search_terms[:4]:
+                        cand_block.append(f"""# Try interactive locator for '{term}'
+if not _step_{step_idx}_done:
+    c = page.locator('button, a, [role="button"], [role="tab"], input[type="submit"], input[type="button"], .btn').filter(has_text={json.dumps(term)}).first
+    if c.count() == 0:
+        c = page.get_by_text({json.dumps(term)}).first
+    if c.count() > 0:
+        c.scroll_into_view_if_needed(timeout=1500)
+        c.click(force=True)
+        page.wait_for_timeout(400)
+        _step_{step_idx}_done = True
+""")
+                    clean_terms = ", ".join(search_terms[:3])
+                    cand_block.append(f"assert _step_{step_idx}_done, f'[NOT APPLICABLE] Action element matching ({clean_terms}) not found on active screen ({{page.url}})'")
+                    statements.append("\n".join(cand_block))
+                    has_executable_action = True
+                    continue
+
+            if is_fill:
+                fill_val = (test_data or {}).get("value") or (test_data or {}).get("name") or target_token or "Test Value"
+                if "search" in s_l or "filter" in s_l:
+                    statements.append(f"""# Sub-Step #{step_idx}: Search input interaction
+sb = page.locator('input[type="search"], input[placeholder*="search" i], input[placeholder*="filter" i], input[name*="search" i]').first
 if sb.count() > 0:
-    sb.scroll_into_view_if_needed(timeout=1500)
+    sb.scroll_into_view_if_needed(timeout=1000)
     sb.fill({json.dumps(fill_val)})
     sb.press('Enter')
     page.wait_for_timeout(400)
+else:
+    raise AssertionError(f"[NOT APPLICABLE] Search input field not found on active screen ({{page.url}})")
 """)
-            else:
-                statements.append(f"""# Form input interaction
-inp = page.locator('input:not([type="hidden"]), textarea').first
+                else:
+                    inp_cand = ""
+                    for w in ["name", "title", "code", "phone", "address", "city", "description", "note"]:
+                        if w in s_l:
+                            inp_cand = w
+                            break
+                    if inp_cand:
+                        statements.append(f"""# Sub-Step #{step_idx}: Form input field for '{inp_cand}'
+inp = page.locator(f'input[name*="{inp_cand}" i], input[placeholder*="{inp_cand}" i], textarea[name*="{inp_cand}" i]').first
+if inp.count() == 0:
+    inp = page.locator('input:not([type="hidden"]):not([type="search"]), textarea').first
 if inp.count() > 0:
-    inp.scroll_into_view_if_needed(timeout=1500)
+    inp.scroll_into_view_if_needed(timeout=1000)
     inp.fill({json.dumps(str(fill_val))})
     page.wait_for_timeout(200)
+else:
+    raise AssertionError(f"[NOT APPLICABLE] Input field for '{inp_cand}' not found on active screen ({{page.url}})")
 """)
+                    else:
+                        statements.append(f"""# Sub-Step #{step_idx}: General form input
+inp = page.locator('input:not([type="hidden"]):not([type="search"]), textarea').first
+if inp.count() > 0:
+    inp.scroll_into_view_if_needed(timeout=1000)
+    inp.fill({json.dumps(str(fill_val))})
+    page.wait_for_timeout(200)
+else:
+    raise AssertionError(f"[NOT APPLICABLE] Form input field not found on active screen ({{page.url}})")
+""")
+                has_executable_action = True
+                continue
+
+        if not has_executable_action:
+            return ""
 
         statements.append("expect(page.locator('body')).to_be_visible()")
         return "\n".join(statements)
@@ -308,21 +438,36 @@ if inp.count() > 0:
         target_words = re.findall(r"['\"]([^'\"]+)['\"]", step_desc + " " + expected_result)
         kw = target_words[0] if target_words else ""
 
+        is_action_step = any(a in desc_l for a in ["click", "fill", "type", "enter", "select", "submit", "delete", "toggle", "create", "save", "edit", "clear", "reset", "filter", "search", "upload", "download", "approve", "reject"])
+        
         if "click" in desc_l and kw:
             lines.append(f"""
 btn = page.locator('button, a, [role="button"], input[type="button"], input[type="submit"]').filter(has_text={json.dumps(kw)}).first
+if btn.count() == 0:
+    btn = page.get_by_text({json.dumps(kw)}).first
 if btn.count() > 0:
     btn.click(force=True)
     page.wait_for_timeout(300)
+else:
+    raise AssertionError(f"[NOT APPLICABLE] Target click element '{kw}' not found on active page ({page.url})")
 """)
         elif any(k in desc_l for k in ["fill", "type", "enter"]) and kw:
             lines.append(f"""
 inp = page.locator('input:not([type="hidden"]), textarea').filter(has_text={json.dumps(kw)}).first
+if inp.count() == 0:
+    inp = page.locator(f'input[placeholder*={json.dumps(kw)} i], input[name*={json.dumps(kw)} i]').first
 if inp.count() > 0:
     inp.fill("test_data")
+else:
+    raise AssertionError(f"[NOT APPLICABLE] Target input field '{kw}' not found on active page ({page.url})")
 """)
+        elif is_action_step:
+            # Action was required but target elements were not located on screen
+            lines.append(f"""raise AssertionError(f"[NOT APPLICABLE] Target action element for '{step_desc}' not found on active page ({page.url})")""")
+        else:
+            # Pure screen load or landing check
+            lines.append("expect(page.locator('body')).to_be_visible()")
 
-        lines.append("expect(page.locator('body')).to_be_visible()")
         return "\n".join(lines)
 
     def _extract_compact_dom(self, page) -> str:

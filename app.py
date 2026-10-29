@@ -3,7 +3,6 @@ import os
 import re
 import sys
 import time
-from datetime import datetime
 from io import BytesIO
 import textwrap
 
@@ -15,6 +14,27 @@ if sys.stdout and hasattr(sys.stdout, "reconfigure"):
 if sys.stderr and hasattr(sys.stderr, "reconfigure"):
     try:
         sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
+# Suppress known Windows Python asyncio Proactor bug (WinError 10054 on closed pipe/transport)
+if sys.platform == "win32":
+    try:
+        import asyncio.proactor_events
+        _orig_call_conn_lost = asyncio.proactor_events._ProactorBasePipeTransport._call_connection_lost
+
+        def _safe_call_connection_lost(self, exc):
+            try:
+                _orig_call_conn_lost(self, exc)
+            except (ConnectionResetError, BrokenPipeError, ConnectionAbortedError):
+                pass
+            except OSError as e:
+                if getattr(e, "winerror", None) in (10054, 10053, 10038):
+                    pass
+                else:
+                    raise
+
+        asyncio.proactor_events._ProactorBasePipeTransport._call_connection_lost = _safe_call_connection_lost
     except Exception:
         pass
 
@@ -168,25 +188,193 @@ def render_html_block(html_content: str):
         st.markdown(cleaned, unsafe_allow_html=True)
 
 
-def _safe_read_uploaded_file(uploaded_file):
-    """Safely reads CSV or Excel files with encoding fallback."""
-    if uploaded_file.name.endswith(".csv"):
+def _register_workbook_sheets(df: pd.DataFrame):
+    """Populates st.session_state['workbook_sheets'] with distinct sheets/modules or default view."""
+    if df is None or not isinstance(df, pd.DataFrame) or df.empty:
+        return
+    if "Sheet_Name" not in df.columns:
+        df["Sheet_Name"] = "Default"
+    unique_sheets = [str(s).strip() for s in df["Sheet_Name"].dropna().unique() if str(s).strip() and str(s).strip().lower() not in ["none", "nan", "", "default"]]
+    if len(unique_sheets) > 1:
+        sheets_dict = {}
+        for s in unique_sheets:
+            sheets_dict[str(s)] = df[df["Sheet_Name"] == s].copy()
         try:
-            return pd.read_csv(uploaded_file)
-        except (UnicodeDecodeError, Exception):
+            st.session_state["workbook_sheets"] = sheets_dict
+        except Exception:
+            pass
+    else:
+        sheet_key = unique_sheets[0] if unique_sheets else "Default"
+        try:
+            st.session_state["workbook_sheets"] = {sheet_key: df}
+        except Exception:
+            pass
+
+
+def sanitize_excel_sheet_name(name: str, used_names: set = None) -> str:
+    """
+    Sanitizes a string to be a valid, unique Excel worksheet name for openpyxl:
+    - Removes forbidden characters: \\ / ? * : [ ]
+    - Truncates to maximum 31 characters
+    - Ensures non-empty fallback
+    - Avoids duplicate sheet names in the workbook
+    """
+    if name is None:
+        clean = "Sheet"
+    else:
+        # Replace Excel forbidden characters with hyphen
+        clean = re.sub(r'[\:\\/\?\*\[\]]', '-', str(name)).strip()
+        # Collapse multiple spaces or hyphens
+        clean = re.sub(r'[-\s]{2,}', ' ', clean)
+        clean = clean.strip(" -'")
+
+    if not clean:
+        clean = "Sheet"
+
+    base = clean[:31]
+    final_name = base
+    if used_names is not None:
+        counter = 1
+        while final_name.lower() in used_names:
+            counter += 1
+            suffix = f" ({counter})"
+            avail_len = max(1, 31 - len(suffix))
+            final_name = f"{base[:avail_len].rstrip()}{suffix}"
+        used_names.add(final_name.lower())
+
+    return final_name
+
+
+def _safe_read_uploaded_file(uploaded_file):
+    """Safely reads CSV or Excel files with encoding fallback, multi-table QA export detection, and multi-sheet preservation."""
+    from core.test_generator import parse_qa_test_sheet_to_dataframe
+    name_l = str(getattr(uploaded_file, "name", "")).lower()
+    
+    if name_l.endswith(".csv") or name_l.endswith(".txt"):
+        content_bytes = None
+        if hasattr(uploaded_file, "seek") and hasattr(uploaded_file, "read"):
+            uploaded_file.seek(0)
+            content_bytes = uploaded_file.read()
+            uploaded_file.seek(0)
+        elif hasattr(uploaded_file, "read"):
+            content_bytes = uploaded_file.read()
+        
+        # 1. Check if raw text contains multi-table or QA export signatures (e.g. from Jira/TestRail/Excel)
+        if content_bytes:
+            for enc in ["utf-8-sig", "utf-8", "latin1", "cp1252"]:
+                try:
+                    text_content = content_bytes.decode(enc)
+                    if any(sig in text_content.lower() for sig in [
+                        "test case id", "test case ids", "screen / function", "screen/function",
+                        "user action on dev link", "use case id", "use case ids", "test steps",
+                        "user story", "steps: who clicks", "steps: who", "preconditions (", "heading ("
+                    ]):
+                        parsed_df = parse_qa_test_sheet_to_dataframe(text_content)
+                        if not parsed_df.empty:
+                            _register_workbook_sheets(parsed_df)
+                            return parsed_df
+                    break
+                except UnicodeDecodeError:
+                    continue
+
+        # 2. Try standard pd.read_csv
+        for enc in ["utf-8-sig", "utf-8", "latin1", "cp1252"]:
             try:
                 uploaded_file.seek(0)
-                return pd.read_csv(uploaded_file, encoding="latin1")
+                df = pd.read_csv(uploaded_file, encoding=enc)
+                unnamed_count = sum(1 for c in df.columns if str(c).startswith("Unnamed"))
+                if unnamed_count == 0 and len(df) > 0:
+                    _register_workbook_sheets(df)
+                    return df
+                parsed_df = parse_qa_test_sheet_to_dataframe(df)
+                if not parsed_df.empty:
+                    _register_workbook_sheets(parsed_df)
+                    return parsed_df
+                _register_workbook_sheets(df)
+                return df
             except Exception:
-                uploaded_file.seek(0)
-                return pd.read_csv(uploaded_file, encoding="utf-8-sig")
-    return pd.read_excel(uploaded_file)
+                continue
+
+        if content_bytes:
+            uploaded_file.seek(0)
+            res_df = parse_qa_test_sheet_to_dataframe(content_bytes)
+            _register_workbook_sheets(res_df)
+            return res_df
+
+    # Excel file (.xlsx, .xls)
+    try:
+        content_bytes = None
+        if hasattr(uploaded_file, "seek") and hasattr(uploaded_file, "read"):
+            uploaded_file.seek(0)
+            content_bytes = uploaded_file.read()
+            uploaded_file.seek(0)
+        xl_source = io.BytesIO(content_bytes) if content_bytes else uploaded_file
+        excel_file = pd.ExcelFile(xl_source)
+        all_dfs = []
+        workbook_sheets = {}
+        for sheet_name in excel_file.sheet_names:
+            sheet_df = pd.read_excel(excel_file, sheet_name=sheet_name)
+            unnamed_count = sum(1 for c in sheet_df.columns if str(c).startswith("Unnamed"))
+            has_clean_step = any(re.sub(r"[^a-z0-9]", "", str(c).lower()) in ["teststepdescription", "teststeps", "steps", "useractionondevlink", "action"] for c in sheet_df.columns)
+            if unnamed_count == 0 and len(sheet_df) > 0 and has_clean_step:
+                active_sheet = sheet_df
+            else:
+                parsed_sheet = parse_qa_test_sheet_to_dataframe(sheet_df)
+                active_sheet = parsed_sheet if not parsed_sheet.empty else sheet_df
+            if not active_sheet.empty:
+                active_sheet = active_sheet.copy()
+                active_sheet["Sheet_Name"] = sheet_name
+                workbook_sheets[sheet_name] = active_sheet
+                all_dfs.append(active_sheet)
+        if all_dfs:
+            try:
+                st.session_state["workbook_sheets"] = workbook_sheets
+            except Exception:
+                pass
+            from core.test_generator import harmonize_qa_dataframe
+            return harmonize_qa_dataframe(pd.concat(all_dfs, ignore_index=True))
+    except Exception:
+        pass
+
+    uploaded_file.seek(0)
+    df = pd.read_excel(uploaded_file)
+    _register_workbook_sheets(df)
+    return df
 
 
 def normalize_test_dataframe(df: pd.DataFrame, default_target: str = None, reset_execution_status: bool = False) -> pd.DataFrame:
     """Normalizes uploaded or generated dataframes into standard 11-column test suite structure."""
-    if df is None or not isinstance(df, pd.DataFrame):
+    if df is None or not isinstance(df, pd.DataFrame) or df.empty:
         return pd.DataFrame(columns=["Run", "Type", "Target", "Test_Step_Description", "Expected_Result", "Status", "Duration", "Actual_Result", "Screenshot", "Execution_Notes", "Playwright_Code"])
+
+    # If df is not yet standardized and has dominant Unnamed columns or section banner headers:
+    is_already_standardized = "Test_Step_Description" in df.columns and "Expected_Result" in df.columns
+    if not is_already_standardized:
+        unnamed_cols = [c for c in df.columns if str(c).startswith("Unnamed")]
+        first_col = str(df.columns[0]).strip() if len(df.columns) > 0 else ""
+        is_banner_col = bool(re.match(r'^\s*\d+(?:\.\d+)*\s*(?:revised\s+)?(?:user\s+story|module|epic|screen)', first_col, re.IGNORECASE))
+        has_banner_row = False
+        if not is_banner_col and not df.empty and df.shape[1] > 2:
+            for val in df.iloc[:3, 0].dropna():
+                if isinstance(val, str) and re.match(r'^\s*\d+(?:\.\d+)*\s*(?:revised\s+)?(?:user\s+story|module)', val, re.IGNORECASE):
+                    has_banner_row = True
+                    break
+        if is_banner_col or has_banner_row or (len(unnamed_cols) >= max(2, len(df.columns) // 2) and len(df) > 0):
+            from core.test_generator import parse_qa_test_sheet_to_dataframe
+            converted = parse_qa_test_sheet_to_dataframe(df, default_target=default_target or "")
+            if not converted.empty:
+                df = converted
+
+    # 2. Only harmonize QA synonyms if any QA synonym columns actually exist
+    qa_keys = (
+        "Screen / Function", "Screen / function", "Screen/Function", "Heading (one of the 7)",
+        "Heading", "User Action on Dev Link", "Steps: who clicks what on the dev link",
+        "Expected Outcome", "Expected outcome", "Expected result: what they see",
+        "Preconditions (test account, data that must exist first)", "Preconditions"
+    )
+    if any(k in df.columns for k in qa_keys):
+        from core.test_generator import harmonize_qa_dataframe
+        df = harmonize_qa_dataframe(df)
 
     df = df.copy()
     df = df.loc[:, ~df.columns.astype(str).str.contains(r"^Unnamed")]
@@ -194,28 +382,46 @@ def normalize_test_dataframe(df: pd.DataFrame, default_target: str = None, reset
     col_mapping = {}
     clean_cols = {re.sub(r"[^a-zA-Z0-9]", "", str(c).lower()): c for c in df.columns}
     
-    for cand in ["teststepdescription", "teststep", "step", "description", "action", "scenario"]:
-        if cand in clean_cols and clean_cols[cand] != "Test_Step_Description":
-            col_mapping[clean_cols[cand]] = "Test_Step_Description"
-            break
+    if "Test_Step_Description" not in df.columns:
+        for cand in ["teststepdescription", "teststeps", "steps", "useractionondevlink", "useraction", "testcasedescription", "testcasetitle", "testtitle", "title", "teststep", "step", "description", "action", "scenario"]:
+            if cand in clean_cols and clean_cols[cand] != "Test_Step_Description":
+                col_mapping[clean_cols[cand]] = "Test_Step_Description"
+                break
 
-    for cand in ["expectedresult", "expected", "result", "verification", "expectedoutput"]:
-        if cand in clean_cols and clean_cols[cand] != "Expected_Result":
-            col_mapping[clean_cols[cand]] = "Expected_Result"
-            break
+    if "Expected_Result" not in df.columns:
+        for cand in ["expectedresult", "expectedoutcome", "expectedoutput", "expectedbehavior", "expectedresults", "expectedoutcomes", "expected", "acceptancecriteria"]:
+            if cand in clean_cols and clean_cols[cand] != "Expected_Result":
+                col_mapping[clean_cols[cand]] = "Expected_Result"
+                break
 
-    for cand in ["target", "targeturl", "url", "link", "endpoint", "reference", "refrance", "screen", "page"]:
-        if cand in clean_cols and clean_cols[cand] != "Target":
-            col_mapping[clean_cols[cand]] = "Target"
-            break
+    if "Target" not in df.columns:
+        for cand in ["target", "targeturl", "url", "link", "endpoint", "reference", "refrance"]:
+            if cand in clean_cols and clean_cols[cand] != "Target":
+                col_mapping[clean_cols[cand]] = "Target"
+                break
 
-    for cand in ["type", "testtype", "category"]:
-        if cand in clean_cols and clean_cols[cand] != "Type":
-            col_mapping[clean_cols[cand]] = "Type"
-            break
+    if "Type" not in df.columns:
+        for cand in ["type", "testtype", "classification", "scenariotype", "category"]:
+            if cand in clean_cols and clean_cols[cand] != "Type":
+                col_mapping[clean_cols[cand]] = "Type"
+                break
+
+    if "Execution_Notes" not in df.columns:
+        for cand in ["executionnotes", "notes", "testcaseid", "tcid"]:
+            if cand in clean_cols and clean_cols[cand] != "Execution_Notes":
+                col_mapping[clean_cols[cand]] = "Execution_Notes"
+                break
+
+    if "Playwright_Code" not in df.columns:
+        for cand in ["playwrightcode", "playwright_code", "code", "script"]:
+            if cand in clean_cols and clean_cols[cand] != "Playwright_Code":
+                col_mapping[clean_cols[cand]] = "Playwright_Code"
+                break
 
     if col_mapping:
         df = df.rename(columns=col_mapping)
+
+    df = df.loc[:, ~df.columns.duplicated()]
 
     current_target = default_target or ""
     from urllib.parse import urlparse
@@ -229,7 +435,7 @@ def normalize_test_dataframe(df: pd.DataFrame, default_target: str = None, reset
             t_s = _clean_text_val(t, "")
             if not t_s:
                 return current_target
-            if t_s.startswith("http://") or t_s.startswith("https://") or not base_prefix:
+            if t_s.startswith("http://") or t_s.startswith("https://") or t_s.startswith("android://") or not base_prefix:
                 return t_s
             return f"{base_prefix}/{t_s.lstrip('/')}"
         df["Target"] = df["Target"].apply(_resolve_target)
@@ -254,10 +460,42 @@ def normalize_test_dataframe(df: pd.DataFrame, default_target: str = None, reset
         else:
             df[col] = _clean_series(df[col], default_val)
 
+    # Rescue real expected outcome for any row having placeholder Expected_Result
+    for col_cand in ["Expected Result", "Expected Outcome", "Expected Output", "Expected", "Expected_Outcome", "ExpectedBehavior"]:
+        if col_cand in df.columns and col_cand != "Expected_Result":
+            real_vals = df[col_cand].astype(str).str.strip()
+            mask_needs_val = df["Expected_Result"].astype(str).str.strip().isin([
+                "", "nan", "None", "Action executes cleanly",
+                "Action executes cleanly and state is verified",
+                "Action executes cleanly and expected outcome is verified"
+            ]) & ~real_vals.isin(["", "nan", "None", "-"])
+            df.loc[mask_needs_val, "Expected_Result"] = df.loc[mask_needs_val, col_cand]
+            break
+
+    # Ensure Sheet_Name is preserved and defaults cleanly
+    if "Sheet_Name" not in df.columns:
+        df["Sheet_Name"] = "Default"
+    else:
+        df["Sheet_Name"] = df["Sheet_Name"].fillna("Default").astype(str).str.strip()
+        df.loc[df["Sheet_Name"].isin(["", "nan", "None"]), "Sheet_Name"] = "Default"
+
     # Auto-infer Mobile (Native) if target is an Android package/activity
     is_android_target = df["Target"].astype(str).str.strip().str.startswith(("android://", "app://"))
     needs_type = df["Type"].astype(str).str.strip().isin(["", "Web", "nan", "None", "-"])
     df.loc[is_android_target & needs_type, "Type"] = "Mobile (Native)"
+
+    # Synthesize Playwright_Code if missing (only for small sets to preserve sub-30ms performance)
+    if "Playwright_Code" in df.columns and len(df) <= 50:
+        missing_pw = df["Playwright_Code"].astype(str).str.strip().isin(["", "nan", "None"])
+        if missing_pw.any():
+            from core.test_generator import _synthesize_default_playwright_code
+            for idx in df[missing_pw].index:
+                df.at[idx, "Playwright_Code"] = _synthesize_default_playwright_code(
+                    step_desc=str(df.at[idx, "Test_Step_Description"] or ""),
+                    expected=str(df.at[idx, "Expected_Result"] or ""),
+                    target_url=str(df.at[idx, "Target"] or ""),
+                    test_type=str(df.at[idx, "Type"] or "Web")
+                )
 
     if reset_execution_status:
         df["Status"] = "PENDING"
@@ -271,6 +509,105 @@ def normalize_test_dataframe(df: pd.DataFrame, default_target: str = None, reset
         df = df[valid_mask].reset_index(drop=True)
     df.index = range(1, len(df) + 1)
     return df
+
+
+def resolve_test_execution_params(index=None, row=None, master_df=None, default_target="", session_target_url="", **kwargs):
+    """
+    Robustly resolves (target_url, step_desc, exp_res, custom_script, test_type)
+    from row, falling back to master_df, adapter fields (_target, _step, _expected, _code),
+    domain columns (Test Steps, Expected Result, Screen / Function), or active session config.
+    Supports flexible signatures: (idx, row, master_df), (row, ...), etc.
+    """
+    if row is None and (isinstance(index, dict) or hasattr(index, "to_dict")):
+        row = index
+        index = getattr(row, "name", None)
+    if row is None:
+        row = {}
+    elif hasattr(row, "to_dict"):
+        row = row.to_dict()
+    elif not isinstance(row, dict):
+        try:
+            row = dict(row)
+        except Exception:
+            row = {}
+
+    m_row = {}
+    if master_df is not None and index is not None and index in getattr(master_df, "index", []):
+        try:
+            m_row = master_df.loc[index].to_dict()
+        except Exception:
+            m_row = {}
+
+    # 1. Target URL resolution
+    target_url = str(
+        row.get("Target") or row.get("_target") or
+        m_row.get("Target") or m_row.get("_target") or
+        session_target_url or
+        default_target or
+        st.session_state.get("session_login_url", "") or
+        st.session_state.get("target_url_input", "") or ""
+    ).strip()
+    if target_url.lower() in ["nan", "none", "-"]:
+        target_url = ""
+
+    if not target_url:
+        try:
+            from core.session_capturer import get_saved_auth_target_url
+            saved_u = get_saved_auth_target_url()
+            if saved_u:
+                target_url = saved_u.strip()
+        except Exception:
+            pass
+
+    # 2. Test Step Description resolution
+    step_desc = str(
+        row.get("Test_Step_Description") or row.get("_step") or
+        m_row.get("Test_Step_Description") or m_row.get("_step") or
+        row.get("Test Steps") or m_row.get("Test Steps") or
+        row.get("User Action on Dev Link") or m_row.get("User Action on Dev Link") or
+        row.get("Test Case Description") or m_row.get("Test Case Description") or
+        row.get("Test Case Title") or m_row.get("Test Case Title") or
+        "Verify UI function and flow"
+    ).strip()
+    if step_desc.lower() in ["nan", "none", ""]:
+        step_desc = "Verify UI function and flow"
+
+    # 3. Expected Result resolution
+    exp_res = str(
+        row.get("Expected_Result") or row.get("_expected") or
+        m_row.get("Expected_Result") or m_row.get("_expected") or
+        row.get("Expected Result") or m_row.get("Expected Result") or
+        row.get("Expected Outcome") or m_row.get("Expected Outcome") or
+        "Action executes cleanly and expected outcome is verified"
+    ).strip()
+    if exp_res.lower() in ["nan", "none", ""]:
+        exp_res = "Action executes cleanly and expected outcome is verified"
+
+    # 4. Type / Channel resolution
+    test_type = str(
+        row.get("Type") or row.get("_type") or
+        m_row.get("Type") or m_row.get("_type") or "Web"
+    ).strip()
+    if test_type.lower() in ["nan", "none", ""]:
+        test_type = "Web"
+
+    # 5. Playwright Code resolution
+    custom_script = str(
+        row.get("Playwright_Code") or row.get("_code") or
+        m_row.get("Playwright_Code") or m_row.get("_code") or ""
+    ).strip()
+    if custom_script.lower() in ["nan", "none"]:
+        custom_script = ""
+
+    # Auto-synthesize script if missing or placeholder
+    if not custom_script or "sync_playwright" in custom_script:
+        try:
+            from core.test_generator import _synthesize_default_playwright_code
+            custom_script = _synthesize_default_playwright_code(step_desc, exp_res, target_url, test_type)
+        except Exception:
+            pass
+
+    return target_url, step_desc, exp_res, custom_script, test_type
 
 
 def append_manual_test_case(type_val: str, target_val: str, step_val: str, expected_val: str, code_val: str = "") -> pd.DataFrame:
@@ -331,9 +668,22 @@ def clear_entire_test_suite():
     st.session_state.pop("results_df", None)
     st.session_state.pop("auto_generated_file", None)
     st.session_state.pop("_active_uploaded_file_id", None)
+    st.session_state.pop("flow_gen_success_msg", None)
     st.session_state.batch_paused = False
     st.session_state.paused_at_index = None
     st.session_state["grid_version"] = st.session_state.get("grid_version", 0) + 1
+
+    # Remove persistent cached files on disk so they are not resurrected
+    for disk_f in ["deep_inspected_tests.csv", "generated_tests.csv"]:
+        if os.path.exists(disk_f):
+            try:
+                os.remove(disk_f)
+            except Exception:
+                try:
+                    with open(disk_f, "w", encoding="utf-8") as fp:
+                        fp.write("Run,Type,Target,Test_Step_Description,Expected_Result,Playwright_Code,Status\n")
+                except Exception:
+                    pass
 
 
 def delete_selected_test_cases(df_current: pd.DataFrame = None) -> bool:
@@ -363,6 +713,10 @@ def delete_selected_test_cases(df_current: pd.DataFrame = None) -> bool:
         return True
 
     remaining_df = master_df[~checked_mask].reset_index(drop=True)
+    if len(remaining_df) == 0:
+        clear_entire_test_suite()
+        return True
+
     remaining_df.index = range(1, len(remaining_df) + 1)
     st.session_state["test_cases_df"] = remaining_df.copy()
     if "results_df" in st.session_state and st.session_state.results_df is not None:
@@ -373,11 +727,22 @@ def delete_selected_test_cases(df_current: pd.DataFrame = None) -> bool:
             st.session_state["results_df"] = rem_res
         else:
             st.session_state["results_df"] = remaining_df.copy()
-    if "auto_generated_file" in st.session_state and os.path.exists(str(st.session_state.auto_generated_file)):
+
+    # Persist updated suite to disk files so deletions are durable
+    target_files = set()
+    active_f = st.session_state.get("auto_generated_file")
+    if active_f:
+        target_files.add(str(active_f))
+    if os.path.exists("deep_inspected_tests.csv"):
+        target_files.add("deep_inspected_tests.csv")
+    if os.path.exists("generated_tests.csv"):
+        target_files.add("generated_tests.csv")
+    for tf in target_files:
         try:
-            remaining_df.to_csv(st.session_state.auto_generated_file, index=False)
+            remaining_df.to_csv(tf, index=False)
         except Exception:
             pass
+
     st.session_state["grid_version"] = st.session_state.get("grid_version", 0) + 1
     return True
 
@@ -402,11 +767,22 @@ def delete_single_test_case(df_current: pd.DataFrame, idx_to_delete: int) -> boo
             st.session_state["results_df"] = rem_res
         else:
             st.session_state["results_df"] = remaining_df.copy()
-    if "auto_generated_file" in st.session_state and os.path.exists(str(st.session_state.auto_generated_file)):
+    
+    # Persist updated suite to disk files so deletions are durable
+    target_files = set()
+    active_f = st.session_state.get("auto_generated_file")
+    if active_f:
+        target_files.add(str(active_f))
+    if os.path.exists("deep_inspected_tests.csv"):
+        target_files.add("deep_inspected_tests.csv")
+    if os.path.exists("generated_tests.csv"):
+        target_files.add("generated_tests.csv")
+    for tf in target_files:
         try:
-            remaining_df.to_csv(st.session_state.auto_generated_file, index=False)
+            remaining_df.to_csv(tf, index=False)
         except Exception:
             pass
+
     st.session_state["grid_version"] = st.session_state.get("grid_version", 0) + 1
     return True
 
@@ -415,8 +791,10 @@ def detect_row_generation_source(row) -> str:
     """Classifies a test case row into its origin engine tag."""
     gen_by = str(row.get("Generated_By", "")).strip()
     if gen_by and gen_by != "nan":
-        if any(g in gen_by for g in ["🤖", "⚙️", "🛡️", "✍️"]):
+        if any(g in gen_by for g in ["⚡", "🤖", "⚙️", "🛡️", "✍️"]):
             return gen_by
+        if "robust" in gen_by.lower():
+            return "⚡ RobustEngine v4"
         if "ai" in gen_by.lower() and "template" in gen_by.lower():
             return "🤖 AI Step + ⚙️ Template Code"
         if "ai" in gen_by.lower():
@@ -427,6 +805,9 @@ def detect_row_generation_source(row) -> str:
     step = str(row.get("Test_Step_Description", "")).strip()
     code = str(row.get("Playwright_Code", "")).strip()
     notes = str(row.get("Execution_Notes", "")).strip()
+
+    if "RobustEngine v4" in code or "Robust Engine" in code:
+        return "⚡ RobustEngine v4"
 
     template_markers = [
         "# 1. Capture baseline record count before applying filter",
@@ -452,27 +833,33 @@ def detect_row_generation_source(row) -> str:
     return "✍️ Manual / Uploaded"
 
 
-def compute_origin_counts(df: pd.DataFrame):
-    """Computes (total, ai_full, ai_hybrid, rule, manual) counts for a test cases dataframe."""
+def compute_origin_counts(df: pd.DataFrame, include_robust: bool = False):
+    """Computes (total, ai_full, ai_hybrid, rule, manual[, robust]) counts for a test cases dataframe."""
     if df is None or len(df) == 0:
-        return 0, 0, 0, 0, 0
+        return (0, 0, 0, 0, 0, 0) if include_robust else (0, 0, 0, 0, 0)
     if "Generated_By" not in df.columns:
         df["Generated_By"] = df.apply(detect_row_generation_source, axis=1)
-    ai_full = int(((df["Generated_By"].astype(str).str.contains("AI Generated", na=False)) & (~df["Generated_By"].astype(str).str.contains("Template", na=False))).sum())
-    ai_hybrid = int((df["Generated_By"].astype(str).str.contains("Template", na=False)).sum())
-    rule = int((df["Generated_By"].astype(str).str.contains("Rule Engine|20-Point", na=False)).sum())
-    manual = max(0, len(df) - ai_full - ai_hybrid - rule)
+    gen_by_str = df["Generated_By"].astype(str)
+    robust = int(gen_by_str.str.contains("Robust", na=False).sum())
+    ai_full = int(((gen_by_str.str.contains("AI Generated", na=False)) & (~gen_by_str.str.contains("Template|Robust", na=False))).sum())
+    ai_hybrid = int(gen_by_str.str.contains("Template", na=False).sum())
+    rule = int((gen_by_str.str.contains("Rule Engine|20-Point", na=False) & (~gen_by_str.str.contains("Robust", na=False))).sum())
+    manual = max(0, len(df) - ai_full - ai_hybrid - rule - robust)
+    if include_robust:
+        return len(df), ai_full, ai_hybrid, rule, manual, robust
     return len(df), ai_full, ai_hybrid, rule, manual
 
 
 def apply_origin_selection_to_suite(df: pd.DataFrame, origin_mode: str) -> pd.DataFrame:
-    """Updates df['Run'] based on origin_mode ('ai_only', 'hybrid_only', 'rule_only', 'manual_only', 'all', 'none')."""
+    """Updates df['Run'] based on origin_mode ('robust_only', 'ai_only', 'hybrid_only', 'rule_only', 'manual_only', 'all', 'none')."""
     if df is None or len(df) == 0:
         return df
     if "Generated_By" not in df.columns:
         df["Generated_By"] = df.apply(detect_row_generation_source, axis=1)
 
-    if origin_mode == "ai_only":
+    if origin_mode == "robust_only":
+        df["Run"] = df["Generated_By"].astype(str).str.contains("Robust", na=False)
+    elif origin_mode == "ai_only":
         df["Run"] = (df["Generated_By"].astype(str).str.contains("AI Generated", na=False)) & (~df["Generated_By"].astype(str).str.contains("Template", na=False))
     elif origin_mode == "hybrid_only":
         df["Run"] = df["Generated_By"].astype(str).str.contains("Template", na=False)
@@ -530,20 +917,28 @@ st.markdown(
         height: auto;
     }
 
-    /* Streamlit Top Header Bar — Always Visible & Styled */
+    /* Streamlit Top Header Bar — Non-Obtrusive, Transparent & Scrollbar-Friendly */
     header[data-testid="stHeader"] {
-        background: rgba(11, 15, 25, 0.88) !important;
-        backdrop-filter: blur(10px) !important;
-        border-bottom: 1px solid rgba(148, 163, 184, 0.12) !important;
+        background: transparent !important;
+        backdrop-filter: none !important;
+        border-bottom: none !important;
+        pointer-events: none !important;
+        z-index: 99 !important;
+        right: 18px !important;
         visibility: visible !important;
         display: flex !important;
-        z-index: 999 !important;
     }
 
-    /* Main Workspace Container Spacing (De-congested, Clean & Modern) */
-    .block-container {
-        padding-top: 2.2rem !important;
-        padding-bottom: 2.2rem !important;
+    header[data-testid="stHeader"] * {
+        pointer-events: auto !important;
+    }
+
+    /* Main Workspace Container Spacing — Full Header Visibility & Clean Scroll Clearance */
+    .block-container,
+    div[data-testid="stAppViewContainer"] .block-container,
+    .stApp [data-testid="stMain"] .block-container {
+        padding-top: 4.5rem !important;
+        padding-bottom: 2.5rem !important;
         max-width: 1480px !important;
     }
 
@@ -700,28 +1095,63 @@ st.markdown(
         min-width: 0 !important;
     }
 
-    div.stButton > button,
-    div.stDownloadButton > button,
-    [data-testid="stPopover"] > div > button,
-    [data-testid="stBaseButton-primary"],
-    [data-testid="stBaseButton-secondary"] {
-        border-radius: 8px !important;
-        font-weight: 600 !important;
-        letter-spacing: 0.15px !important;
-        min-height: 38px !important;
-        padding: 0.4rem 0.65rem !important;
-        font-size: 0.84rem !important;
+    /* Primary CTA Button Elevation & Radiant Lighting */
+    div.stButton > button[kind="primary"],
+    div.stDownloadButton > button[kind="primary"],
+    [data-testid="stBaseButton-primary"] {
+        background: linear-gradient(135deg, #6366F1 0%, #4338CA 100%) !important;
+        border: 1px solid rgba(165, 180, 252, 0.4) !important;
+        color: #FFFFFF !important;
+        border-radius: 9px !important;
+        font-weight: 700 !important;
+        letter-spacing: 0.2px !important;
+        min-height: 40px !important;
+        padding: 0.45rem 0.85rem !important;
+        font-size: 0.86rem !important;
         white-space: nowrap !important;
         overflow: hidden !important;
         text-overflow: ellipsis !important;
         transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
-        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2) !important;
+        box-shadow: 0 4px 14px -1px rgba(99, 102, 241, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.2) !important;
+    }
+    div.stButton > button[kind="primary"]:hover,
+    div.stDownloadButton > button[kind="primary"]:hover,
+    [data-testid="stBaseButton-primary"]:hover {
+        background: linear-gradient(135deg, #4F46E5 0%, #3730A3 100%) !important;
+        transform: translateY(-1.5px) !important;
+        box-shadow: 0 6px 20px rgba(99, 102, 241, 0.6) !important;
+    }
+
+    /* Secondary Button Glassmorphism & Micro-Interactions */
+    div.stButton > button,
+    div.stDownloadButton > button,
+    [data-testid="stPopover"] > div > button,
+    [data-testid="stBaseButton-secondary"] {
+        background: rgba(255, 255, 255, 0.04) !important;
+        border: 1px solid rgba(255, 255, 255, 0.12) !important;
+        color: #E2E8F0 !important;
+        backdrop-filter: blur(8px) !important;
+        border-radius: 9px !important;
+        font-weight: 600 !important;
+        letter-spacing: 0.15px !important;
+        min-height: 40px !important;
+        padding: 0.45rem 0.85rem !important;
+        font-size: 0.85rem !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25) !important;
     }
     div.stButton > button:hover,
     div.stDownloadButton > button:hover,
-    [data-testid="stPopover"] > div > button:hover {
-        transform: translateY(-1px) !important;
-        box-shadow: 0 4px 12px rgba(99, 102, 241, 0.25) !important;
+    [data-testid="stPopover"] > div > button:hover,
+    [data-testid="stBaseButton-secondary"]:hover {
+        background: rgba(255, 255, 255, 0.08) !important;
+        border-color: rgba(99, 102, 241, 0.45) !important;
+        color: #FFFFFF !important;
+        transform: translateY(-1.5px) !important;
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3) !important;
     }
     div.stButton > button:focus-visible,
     div.stDownloadButton > button:focus-visible,
@@ -730,23 +1160,92 @@ st.markdown(
         outline-offset: 2px !important;
     }
 
+    /* Form Inputs, Selects & Textareas Refinement */
+    div[data-baseweb="input"] > div,
+    div[data-baseweb="textarea"] > div,
+    div[data-baseweb="select"] > div {
+        background: rgba(13, 18, 31, 0.75) !important;
+        border: 1px solid rgba(255, 255, 255, 0.12) !important;
+        border-radius: 9px !important;
+        transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease !important;
+    }
+    div[data-baseweb="input"]:focus-within > div,
+    div[data-baseweb="textarea"]:focus-within > div,
+    div[data-baseweb="select"]:focus-within > div {
+        border-color: #6366F1 !important;
+        box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.25) !important;
+        background: rgba(13, 18, 31, 0.95) !important;
+    }
+
+    /* Container Glassmorphism */
+    [data-testid="stVerticalBlockBorderWrapper"] {
+        background: rgba(15, 23, 42, 0.45) !important;
+        border: 1px solid rgba(255, 255, 255, 0.08) !important;
+        border-radius: 12px !important;
+        backdrop-filter: blur(12px) !important;
+        transition: border-color 0.2s ease, box-shadow 0.2s ease !important;
+    }
+    [data-testid="stVerticalBlockBorderWrapper"]:hover {
+        border-color: rgba(99, 102, 241, 0.25) !important;
+    }
+
+    /* Form Labels Clarity */
+    label[data-testid="stWidgetLabel"] p,
+    label[data-testid="stWidgetLabel"] span {
+        font-size: 0.84rem !important;
+        font-weight: 600 !important;
+        color: #CBD5E1 !important;
+        margin-bottom: 2px !important;
+    }
+
+    /* Section Subheadings */
+    .stSubheader, h2, h3 {
+        letter-spacing: -0.02em !important;
+        font-weight: 700 !important;
+        color: #F8FAFC !important;
+    }
+
     /* Popover Container & Clean Modal Spacing */
     [data-testid="stPopoverBody"] {
-        min-width: 300px !important;
-        max-width: 400px !important;
+        min-width: 360px !important;
+        max-width: 480px !important;
         background: #0E1422 !important;
-        border: 1px solid rgba(255, 255, 255, 0.12) !important;
-        border-radius: 11px !important;
-        box-shadow: 0 16px 36px rgba(0, 0, 0, 0.6) !important;
-        padding: 1rem !important;
+        border: 1px solid rgba(255, 255, 255, 0.16) !important;
+        border-radius: 12px !important;
+        box-shadow: 0 20px 45px rgba(0, 0, 0, 0.65) !important;
+        padding: 1.15rem !important;
     }
     [data-testid="stPopoverBody"] [data-testid="column"] {
         min-width: 0 !important;
     }
     [data-testid="stPopoverBody"] div.stButton > button {
-        min-height: 36px !important;
-        padding: 0.35rem 0.5rem !important;
+        min-height: 38px !important;
+        padding: 0.45rem 0.75rem !important;
+        font-size: 0.86rem !important;
+        border-radius: 8px !important;
+    }
+    [data-testid="stPopoverBody"] div[data-baseweb="input"],
+    [data-testid="stPopoverBody"] div[data-baseweb="select"] > div {
+        background: rgba(255, 255, 255, 0.04) !important;
+        border: 1px solid rgba(255, 255, 255, 0.16) !important;
+        border-radius: 8px !important;
+        transition: all 0.2s ease !important;
+    }
+    [data-testid="stPopoverBody"] div[data-baseweb="input"]:focus-within,
+    [data-testid="stPopoverBody"] div[data-baseweb="select"] > div:focus-within {
+        border-color: #6366F1 !important;
+        box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.25) !important;
+    }
+    [data-testid="stPopoverBody"] input,
+    [data-testid="stPopoverBody"] textarea {
+        color: #F8FAFC !important;
+        font-size: 0.88rem !important;
+    }
+    [data-testid="stPopoverBody"] label {
         font-size: 0.82rem !important;
+        font-weight: 600 !important;
+        color: #CBD5E1 !important;
+        margin-bottom: 4px !important;
     }
 
     /* Tooltip Anti-Stick Protection */
@@ -1002,6 +1501,134 @@ st.markdown(
         line-height: 1.5;
     }
 
+    /* Flow Explorer & Generation Bar Elevation */
+    .flow-generator-card {
+        background: radial-gradient(circle at 90% 10%, rgba(99, 102, 241, 0.12), transparent 50%),
+                    linear-gradient(180deg, rgba(17, 24, 39, 0.85) 0%, rgba(13, 19, 32, 0.95) 100%) !important;
+        border: 1px solid rgba(99, 102, 241, 0.28) !important;
+        border-radius: 12px !important;
+        padding: 14px 18px !important;
+        margin-top: 10px !important;
+        margin-bottom: 12px !important;
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3) !important;
+    }
+    
+    .screen-card-box {
+        background: linear-gradient(180deg, rgba(19, 26, 43, 0.6) 0%, rgba(15, 23, 42, 0.75) 100%) !important;
+        border: 1px solid rgba(255, 255, 255, 0.08) !important;
+        border-radius: 10px !important;
+        padding: 12px !important;
+        transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+    }
+    .screen-card-box:hover {
+        border-color: rgba(99, 102, 241, 0.4) !important;
+        box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35) !important;
+        transform: translateY(-2px);
+    }
+
+    /* Flow Explorer Ultra-Modern Dashboard & Micro-Animations */
+    @keyframes flowCardEnter {
+        0% { opacity: 0; transform: translateY(12px) scale(0.99); }
+        100% { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    @keyframes subtlePulse {
+        0%, 100% { box-shadow: 0 0 10px rgba(99, 102, 241, 0.15); }
+        50% { box-shadow: 0 0 20px rgba(99, 102, 241, 0.38); }
+    }
+    .flow-stat-strip {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+        gap: 12px;
+        margin-top: 10px;
+        margin-bottom: 16px;
+        animation: flowCardEnter 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .flow-stat-pill {
+        background: linear-gradient(135deg, rgba(26, 32, 53, 0.75) 0%, rgba(15, 23, 42, 0.90) 100%);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 10px;
+        padding: 12px 14px;
+        text-align: center;
+        transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+        backdrop-filter: blur(8px);
+    }
+    .flow-stat-pill:hover {
+        border-color: rgba(99, 102, 241, 0.5);
+        transform: translateY(-2px);
+        box-shadow: 0 6px 16px rgba(0, 0, 0, 0.35);
+    }
+    .flow-stat-val {
+        font-size: 1.35rem;
+        font-weight: 700;
+        color: #F8FAFC;
+        line-height: 1.2;
+    }
+    .flow-stat-lbl {
+        font-size: 0.72rem;
+        color: #94A3B8;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        margin-top: 4px;
+    }
+    .flow-node-badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 3px 8px;
+        font-size: 0.74rem;
+        font-weight: 600;
+        border-radius: 6px;
+        background: rgba(99, 102, 241, 0.16);
+        color: #A5B4FC;
+        border: 1px solid rgba(99, 102, 241, 0.3);
+        margin: 2px 4px 2px 0;
+    }
+    .flow-node-badge-green {
+        background: rgba(16, 185, 129, 0.16);
+        color: #6EE7B7;
+        border: 1px solid rgba(16, 185, 129, 0.3);
+    }
+    .flow-node-badge-amber {
+        background: rgba(245, 158, 11, 0.16);
+        color: #FCD34D;
+        border: 1px solid rgba(245, 158, 11, 0.3);
+    }
+    .flow-node-badge-sky {
+        background: rgba(14, 165, 233, 0.16);
+        color: #7DD3FC;
+        border: 1px solid rgba(14, 165, 233, 0.3);
+    }
+    .flow-journey-container {
+        background: linear-gradient(180deg, rgba(17, 24, 39, 0.6) 0%, rgba(11, 17, 30, 0.8) 100%);
+        border: 1px solid rgba(99, 102, 241, 0.22);
+        border-radius: 12px;
+        padding: 16px 20px;
+        margin-bottom: 18px;
+        overflow-x: auto;
+    }
+    .flow-journey-step {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        margin: 6px 4px;
+    }
+    .flow-journey-node {
+        background: linear-gradient(135deg, rgba(30, 41, 59, 0.85) 0%, rgba(15, 23, 42, 0.95) 100%);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 8px;
+        padding: 8px 12px;
+        font-size: 0.82rem;
+        color: #F1F5F9;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        transition: all 0.2s ease;
+    }
+    .flow-journey-node:hover {
+        border-color: rgba(99, 102, 241, 0.6);
+        background: rgba(99, 102, 241, 0.15);
+    }
+
     /* Mobile Optimization & Overflow Prevention (<= 768px) */
     @media screen and (max-width: 768px) {
         .block-container {
@@ -1052,18 +1679,15 @@ st.markdown(
 # Validation Helper Functions
 # ---------------------------------------------------------
 def validate_url(url_str: str) -> tuple[bool, str]:
-    """Validates if a URL is provided and conforms to HTTP/HTTPS format or Android package name."""
+    """Validates if a URL is provided and conforms to HTTP/HTTPS format or Android package name, enforcing SSRF and security controls."""
     if not url_str or not str(url_str).strip():
         return False, "Target URL or Android package cannot be empty."
     clean = str(url_str).strip()
     # Check if this is an Android package (e.g. com.zeptoconsumerapp, com.cuvora.carinfo) or android:// URI
     if clean.startswith("android://") or re.match(r"^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*)+$", clean):
         return True, ""
-    if not (clean.startswith("http://") or clean.startswith("https://") or clean.startswith("localhost") or clean.startswith("127.0.0.1")):
-        return False, "Target must start with 'http://', 'https://', or be a valid Android package (e.g. com.zeptoconsumerapp)."
-    if len(clean) < 8:
-        return False, "URL is too short to be valid."
-    return True, ""
+    from core.security_guardrails import validate_target_url_security
+    return validate_target_url_security(clean, allow_local_dev=True)
 
 
 def validate_json_body(json_str: str) -> tuple[bool, str]:
@@ -1124,9 +1748,13 @@ NETWORK_KEY_TO_LABEL = {n[1]: n[0] for n in NETWORK_CHOICES}
 if "_persisted_force_g4f" not in st.session_state:
     st.session_state["_persisted_force_g4f"] = bool(saved_config.get("force_g4f", False))
 if "_persisted_show_browser" not in st.session_state:
-    st.session_state["_persisted_show_browser"] = bool(saved_config.get("show_browser", False))
+    st.session_state["_persisted_show_browser"] = bool(saved_config.get("show_browser", True))
 if "_persisted_enable_visual" not in st.session_state:
     st.session_state["_persisted_enable_visual"] = bool(saved_config.get("enable_visual", True))
+if "_persisted_show_adapter" not in st.session_state:
+    st.session_state["_persisted_show_adapter"] = bool(saved_config.get("show_adapter_cols", True))
+if "_persisted_step_pause" not in st.session_state:
+    st.session_state["_persisted_step_pause"] = bool(saved_config.get("step_pause", False))
 if "_persisted_target_platform" not in st.session_state:
     st.session_state["_persisted_target_platform"] = str(saved_config.get("target_platform", "desktop_chrome"))
 if "_persisted_platform_orientation" not in st.session_state:
@@ -1142,13 +1770,45 @@ if "show_browser" not in st.session_state:
     st.session_state["show_browser"] = st.session_state["_persisted_show_browser"]
 if "enable_visual" not in st.session_state:
     st.session_state["enable_visual"] = st.session_state["_persisted_enable_visual"]
+if "global_show_adapter_cols" not in st.session_state:
+    st.session_state["global_show_adapter_cols"] = st.session_state["_persisted_show_adapter"]
+if "global_step_pause" not in st.session_state:
+    st.session_state["global_step_pause"] = st.session_state["_persisted_step_pause"]
+
+
+def get_global_target_url(fallback: str = "") -> str:
+    """Returns the most up-to-date active target URL across all session sources."""
+    for k in ["global_target_url", "flow_explorer_url", "single_url_input", "session_login_url", "deep_inspector_url_input"]:
+        val = str(st.session_state.get(k, "")).strip()
+        if val:
+            return val
+    disc_flow = st.session_state.get("discovered_flow")
+    if isinstance(disc_flow, dict) and disc_flow.get("start_url"):
+        return str(disc_flow["start_url"]).strip()
+    saved = load_saved_session_target()
+    if saved:
+        return str(saved).strip()
+    return fallback
+
+
+def set_global_target_url(new_url: str):
+    """Synchronizes target URL globally across all tabs and components."""
+    clean_u = str(new_url or "").strip()
+    if not clean_u:
+        return
+    st.session_state["global_target_url"] = clean_u
+    if "flow_explorer_url" in st.session_state and not st.session_state.get("flow_explorer_url"):
+        st.session_state["flow_explorer_url"] = clean_u
+    if "single_url_input" in st.session_state and not st.session_state.get("single_url_input"):
+        st.session_state["single_url_input"] = clean_u
 
 
 def _on_execution_settings_change():
     """Immediately persists Execution Settings states to session and config/settings.json."""
     fg = bool(st.session_state.get("force_g4f", st.session_state.get("_persisted_force_g4f", False)))
-    sb = bool(st.session_state.get("show_browser", st.session_state.get("_persisted_show_browser", False)))
+    sb = bool(st.session_state.get("show_browser", st.session_state.get("_persisted_show_browser", True)))
     ev = bool(st.session_state.get("enable_visual", st.session_state.get("_persisted_enable_visual", True)))
+    sac = bool(st.session_state.get("global_show_adapter_cols_sidebar", st.session_state.get("global_show_adapter_cols", st.session_state.get("_persisted_show_adapter", True))))
 
     tgt_plat_lbl = st.session_state.get("target_platform_select", PLATFORM_KEY_TO_LABEL.get(st.session_state.get("_persisted_target_platform", "desktop_chrome"), PLATFORM_CHOICES[0][0]))
     tgt_plat = PLATFORM_LABEL_TO_KEY.get(tgt_plat_lbl, "desktop_chrome")
@@ -1160,6 +1820,8 @@ def _on_execution_settings_change():
     st.session_state["_persisted_force_g4f"] = fg
     st.session_state["_persisted_show_browser"] = sb
     st.session_state["_persisted_enable_visual"] = ev
+    st.session_state["_persisted_show_adapter"] = sac
+    st.session_state["global_show_adapter_cols"] = sac
     st.session_state["_persisted_target_platform"] = tgt_plat
     st.session_state["_persisted_platform_orientation"] = orient
     st.session_state["_persisted_network_preset"] = net_preset
@@ -1180,6 +1842,7 @@ def _on_execution_settings_change():
             "force_g4f": fg,
             "show_browser": sb,
             "enable_visual": ev,
+            "show_adapter_cols": sac,
             "target_platform": tgt_plat,
             "platform_orientation": orient,
             "network_preset": net_preset,
@@ -1206,6 +1869,13 @@ enable_visual = st.sidebar.checkbox(
     key="enable_visual",
     on_change=_on_execution_settings_change,
     help="Take screenshot and analyze page layout via Vision AI.",
+)
+show_adapter_sidebar = st.sidebar.checkbox(
+    "🛠️ Show Adapter Columns in Grid",
+    value=st.session_state.get("global_show_adapter_cols", True),
+    key="global_show_adapter_cols_sidebar",
+    on_change=_on_execution_settings_change,
+    help="Display Playwright Code, Target, and execution adapter columns in the Test Suite Grid.",
 )
 
 # Omnichannel & Target Platform selector
@@ -1276,6 +1946,9 @@ if "cdp" in selected_platform_key:
                 list_installed_packages,
                 launch_app_on_device,
                 forward_device_port,
+                reset_all_device_forwards,
+                get_active_forwarded_port,
+                find_free_port,
                 fetch_cdp_targets,
                 get_foreground_app_info,
                 capture_device_screenshot,
@@ -1327,11 +2000,18 @@ if "cdp" in selected_platform_key:
                         safe_sock_idx = sel_sock_idx if sel_sock_idx is not None and sel_sock_idx < len(sockets) else 0
                         selected_socket = sockets[safe_sock_idx]["socket"]
 
-                        if st.button("⚡ Connect & Forward Port", key="btn_fwd_adb_port", type="primary", width="stretch"):
-                            if forward_device_port(selected_socket, local_port=9222, serial=device_serial):
-                                st.toast(f"✅ Forwarded {selected_socket} to localhost:9222!", icon="🔌")
-                            else:
-                                st.error("Failed to forward ADB port.")
+                        col_fwd1, col_fwd2 = st.columns([1.6, 1.0])
+                        with col_fwd1:
+                            if st.button("⚡ Connect & Forward", key="btn_fwd_adb_port", type="primary", width="stretch"):
+                                if forward_device_port(selected_socket, local_port=9222, serial=device_serial, auto_port=True):
+                                    bound_p = get_active_forwarded_port()
+                                    st.toast(f"✅ Forwarded {selected_socket} to 127.0.0.1:{bound_p}!", icon="🔌")
+                                else:
+                                    st.error("Failed to forward ADB port.")
+                        with col_fwd2:
+                            if st.button("🧹 Reset Ports", key="btn_reset_adb_forwards", type="secondary", width="stretch", help="Clears zombie forward tunnels to fix conflicts"):
+                                reset_all_device_forwards(serial=device_serial)
+                                st.toast("🧹 Cleared all active ADB forwards!", icon="✅")
                     else:
                         st.caption("ℹ️ No debuggable WebViews or Chrome browser sockets detected on this device. (Use **📸 Native App Inspector** below to inspect and test native apps directly!)")
                 else:
@@ -1341,7 +2021,7 @@ if "cdp" in selected_platform_key:
                         if st.button("🚀 Launch App on Device", key="btn_launch_adb_app", width="stretch"):
                             if launch_app_on_device(sel_pkg, serial=device_serial):
                                 st.toast(f"🚀 Launched {sel_pkg}!", icon="📱")
-                                forward_device_port("chrome_devtools_remote", 9222, device_serial)
+                                forward_device_port("chrome_devtools_remote", 9222, device_serial, auto_port=True)
                             else:
                                 st.error("Failed to launch application on device.")
                     else:
@@ -1446,7 +2126,7 @@ if "cdp" in selected_platform_key:
                                 st.rerun()
 
                 # Live CDP Target Inspection
-                targets = fetch_cdp_targets("http://localhost:9222")
+                targets = fetch_cdp_targets(cdp_url_val or "http://localhost:9222")
                 if targets:
                     valid_targets = [t for t in targets if t.get("url") and not str(t.get("url", "")).startswith("chrome-") and not str(t.get("url", "")).startswith("about:")]
                     display_targets = valid_targets if valid_targets else targets
@@ -1544,8 +2224,8 @@ else:
 default_vars = saved_config.get(
     "test_variables",
     [
-        {"Key": "Email", "Value": "admin@example.com"},
-        {"Key": "Password", "Value": "password123"},
+        {"Key": "Email", "Value": ""},
+        {"Key": "Password", "Value": ""},
     ],
 )
 
@@ -1570,54 +2250,84 @@ if isinstance(td_df, pd.DataFrame) and not td_df.empty and "Key" in td_df.column
 
 # 3. Session & Login Capture
 st.sidebar.subheader("🔐 Session & Login Capture")
-from core.session_capturer import capture_interactive_session, get_auth_session_summary
-
-def _cb_clear_session():
-    if os.path.exists("auth.json"):
-        try:
-            os.remove("auth.json")
-        except Exception:
-            pass
-    st.session_state["session_cleared_flag"] = True
+from core.session_capturer import (
+    capture_interactive_session,
+    get_auth_session_summary,
+    save_auth_target_url,
+    clear_auth_session,
+)
 
 auth_summary = get_auth_session_summary("auth.json")
+saved_target_url = auth_summary.get("target_url", "")
+
+def _cb_clear_session():
+    clear_auth_session("auth.json")
+    st.session_state["session_login_url"] = ""
+    st.session_state["session_cleared_flag"] = True
+
+def _cb_update_session_target():
+    curr = st.session_state.get("session_login_url", "").strip()
+    if curr:
+        set_global_target_url(curr)
+        if os.path.exists("auth.json"):
+            save_auth_target_url(curr, "auth.json")
+
+# Ensure Target Login URL persists when a session is active or from global target
+if not st.session_state.get("session_cleared_flag"):
+    if "session_login_url" not in st.session_state or not st.session_state.get("session_login_url"):
+        if auth_summary.get("active") and saved_target_url:
+            st.session_state["session_login_url"] = saved_target_url
+        else:
+            glob_u = get_global_target_url()
+            if glob_u:
+                st.session_state["session_login_url"] = glob_u
+
 if auth_summary.get("active"):
     st.sidebar.success(f"🟢 {auth_summary.get('summary', 'Active Session')}")
 else:
     st.sidebar.info("⚪ No active session saved.")
 
 if st.session_state.pop("session_cleared_flag", False):
-    st.toast("🗑️ Active session cleared!")
+    st.toast("🗑️ Active session and target URL cleared!")
 
 session_target_url = st.sidebar.text_input(
     "Target Login URL",
     placeholder="https://example.com/login",
     key="session_login_url",
+    on_change=_cb_update_session_target,
+)
+
+auto_submit_choice = st.sidebar.checkbox(
+    "Auto-submit credentials",
+    value=True,
+    help="Automatically clicks submit after filling credentials. Uncheck to submit manually."
 )
 
 col_s1, col_s2 = st.sidebar.columns(2)
 with col_s1:
-    if st.button("🌐 Capture", type="primary", width='stretch', help="Opens browser, auto-fills credentials from variables, and saves session"):
-        if not session_target_url:
-            st.sidebar.warning("Please enter a target URL.")
-        else:
-            with st.spinner("Logging in & capturing session..."):
-                res = capture_interactive_session(
-                    session_target_url,
-                    output_auth_path="auth.json",
-                    timeout_seconds=60,
-                    test_data=test_data_dict,
-                    auto_submit=True,
-                )
-                if res.get("status") == "success":
-                    st.sidebar.success(res.get("message"))
-                    time.sleep(0.4)
-                    st.rerun()
-                else:
-                    st.sidebar.error(res.get("message"))
-
+    btn_capture = st.button("🌐 Capture", type="primary", width='stretch', help="Opens browser, auto-fills credentials from variables, and saves session")
 with col_s2:
-    st.button("🗑️ Clear", on_click=_cb_clear_session, type="secondary", width='stretch', help="Deletes auth.json to clear active session")
+    st.button("🗑️ Clear", on_click=_cb_clear_session, type="secondary", width='stretch', help="Deletes active session and target URL to reset this section")
+
+if btn_capture:
+    if not session_target_url:
+        st.sidebar.warning("Please enter a target URL.")
+    else:
+        with st.sidebar.spinner("Logging in & capturing session..."):
+            res = capture_interactive_session(
+                session_target_url,
+                output_auth_path="auth.json",
+                timeout_seconds=60,
+                test_data=test_data_dict,
+                auto_submit=auto_submit_choice,
+            )
+            if res.get("status") == "success":
+                save_auth_target_url(session_target_url, "auth.json")
+                st.sidebar.success(res.get("message"))
+                time.sleep(0.4)
+                st.rerun()
+            else:
+                st.sidebar.error(res.get("message"))
 
 st.sidebar.divider()
 
@@ -1654,6 +2364,11 @@ active_cfg = {
     "force_g4f": bool(force_g4f),
     "show_browser": bool(show_browser),
     "enable_visual": bool(enable_visual),
+    "show_adapter_cols": bool(st.session_state.get("global_show_adapter_cols", True)),
+    "target_platform": selected_platform_key,
+    "platform_orientation": selected_orientation.lower() if any(m in selected_platform_key for m in ["iphone", "pixel", "galaxy", "ipad"]) else "portrait",
+    "network_preset": selected_net_key,
+    "cdp_url": cdp_url_val,
     "test_variables": st.session_state.test_data.to_dict(orient="records"),
 }
 
@@ -1784,14 +2499,149 @@ with tab1:
             "Web,https://example.com,Step 1: Open landing page -> Step 2: Verify main heading is visible,Main heading is displayed cleanly\n"
             "API,https://jsonplaceholder.typicode.com/posts/1,Send a GET request to https://jsonplaceholder.typicode.com/posts/1,HTTP 200\n"
         )
-        st.caption("📄 Need a sample format? Download starter CSV with Web & API rows:")
+        st.caption("📄 Blank template: starter CSV format with Web & API rows:")
         st.download_button(
-            "📥 Download CSV Template",
+            "📥 Starter Template CSV",
             data=sample_template_csv.encode("utf-8"),
             file_name="sample_test_suite_template.csv",
             mime="text/csv",
             width='stretch',
+            key="tab1_btn_dl_sample_template",
+            help="Download a 2-row starter template to inspect the required columns",
         )
+
+    with st.expander("✨ AI Universal Format Re-Gen (Preserve 100% As-Is Format + Synthesize Playwright Execution)", expanded=bool(uploaded_file)):
+        st.markdown(
+            "Upload any test case format — Jira export, TestRail sheet, messy Excel with merged cells, bulleted QA notes, or multi-sheet workbook. "
+            "The **AI Re-Gen Engine preserves 100% of your original columns as-is** (As-Is Format Retention), infers missing steps & assertions, "
+            "and synthesizes executable Playwright code in the background execution adapter (`_target`, `_code`)."
+        )
+        c_rg_u1, c_rg_u2 = st.columns([2.5, 1.5])
+        with c_rg_u1:
+            ai_regen_target = st.text_input(
+                "Target Web URL / App URL (optional fallback for tests missing a URL)",
+                value=st.session_state.get("single_url_input", ""),
+                placeholder="e.g. https://example.com/app",
+                key="tab1_ai_regen_target_url"
+            )
+        with c_rg_u2:
+            ai_regen_type = st.selectbox(
+                "Default Test Type",
+                ["Web", "API", "Mobile (Native)"],
+                index=0,
+                key="tab1_ai_regen_default_type"
+            )
+
+        ai_regen_notes = st.text_input(
+            "Additional Context or QA Instructions (optional)",
+            placeholder="e.g. 'Synthesize strict assertions for login and checkout' or 'Infer missing steps from descriptions'",
+            key="tab1_ai_regen_instructions"
+        )
+
+        c_btn_rg1, c_btn_rg2 = st.columns([1.5, 1])
+        with c_btn_rg1:
+            btn_regen_file = st.button(
+                "✨ AI Re-Gen & Convert Uploaded File",
+                type="primary",
+                width="stretch",
+                disabled=not bool(uploaded_file),
+                key="tab1_btn_ai_regen_file",
+                help="Applies AI Re-Gen to the currently uploaded file to standardize it and synthesize Playwright code"
+            )
+        with c_btn_rg2:
+            has_existing = "test_cases_df" in st.session_state and isinstance(st.session_state.test_cases_df, pd.DataFrame) and not st.session_state.test_cases_df.empty
+            btn_regen_active = st.button(
+                "🔄 AI Re-Gen Active Suite",
+                type="secondary",
+                width="stretch",
+                disabled=not has_existing,
+                key="tab1_btn_ai_regen_active",
+                help="Re-standardizes whatever test cases are currently loaded in memory"
+            )
+
+        if btn_regen_file and uploaded_file:
+            prog_bar = st.progress(0.0, text="🤖 AI Re-Gen: Initializing analysis of uploaded file...")
+
+            def _regen_file_cb(pct: float, msg: str):
+                try:
+                    prog_bar.progress(min(1.0, max(0.0, pct)), text=f"🤖 AI Re-Gen: {msg}")
+                except Exception:
+                    pass
+
+            import importlib
+            import core.test_generator
+            if not hasattr(core.test_generator.TestGenerator, "ai_regenerate_and_convert_suite"):
+                importlib.reload(core.test_generator)
+            from core.test_generator import TestGenerator
+            from core.ai_client import AIClient
+            ai_c = AIClient()
+            gen = TestGenerator(ai_client=ai_c)
+            regen_df = gen.ai_regenerate_and_convert_suite(
+                uploaded_file,
+                default_target=ai_regen_target,
+                user_instructions=ai_regen_notes,
+                default_type=ai_regen_type,
+                on_progress_callback=_regen_file_cb,
+            )
+            if regen_df is not None and not regen_df.empty:
+                prog_bar.progress(1.0, text=f"🎉 Successfully converted {len(regen_df)} test cases into standard format!")
+                time.sleep(0.35)
+                target_csv = "deep_inspected_tests.csv"
+                regen_df.to_csv(target_csv, index=False)
+                st.session_state["test_cases_df"] = regen_df
+                st.session_state["auto_generated_file"] = target_csv
+                st.session_state["suite_explicitly_cleared"] = False
+                st.session_state["_active_uploaded_file_id"] = f"{uploaded_file.name}_{uploaded_file.size}_regen"
+                if "results_df" in st.session_state:
+                    del st.session_state["results_df"]
+                st.session_state["grid_version"] = st.session_state.get("grid_version", 0) + 1
+                st.toast(f"🎉 Successfully converted {len(regen_df)} test cases into flawless standard format!", icon="✨")
+                st.rerun()
+            else:
+                prog_bar.empty()
+                st.error("AI Re-Gen could not extract test cases from this file. Please check file contents.")
+
+        if btn_regen_active and has_existing:
+            prog_bar = st.progress(0.0, text="🤖 AI Re-Gen: Initializing re-standardization of active suite...")
+
+            def _regen_active_cb(pct: float, msg: str):
+                try:
+                    prog_bar.progress(min(1.0, max(0.0, pct)), text=f"🤖 AI Re-Gen: {msg}")
+                except Exception:
+                    pass
+
+            import importlib
+            import core.test_generator
+            if not hasattr(core.test_generator.TestGenerator, "ai_regenerate_and_convert_suite"):
+                importlib.reload(core.test_generator)
+            from core.test_generator import TestGenerator
+            from core.ai_client import AIClient
+            ai_c = AIClient()
+            gen = TestGenerator(ai_client=ai_c)
+            curr_suite = st.session_state["test_cases_df"]
+            regen_df = gen.ai_regenerate_and_convert_suite(
+                curr_suite,
+                default_target=ai_regen_target,
+                user_instructions=ai_regen_notes,
+                default_type=ai_regen_type,
+                on_progress_callback=_regen_active_cb,
+            )
+            if regen_df is not None and not regen_df.empty:
+                prog_bar.progress(1.0, text=f"🎉 Successfully re-generated {len(regen_df)} test cases in standard format!")
+                time.sleep(0.35)
+                target_csv = "deep_inspected_tests.csv"
+                regen_df.to_csv(target_csv, index=False)
+                st.session_state["test_cases_df"] = regen_df
+                st.session_state["auto_generated_file"] = target_csv
+                st.session_state["suite_explicitly_cleared"] = False
+                if "results_df" in st.session_state:
+                    del st.session_state["results_df"]
+                st.session_state["grid_version"] = st.session_state.get("grid_version", 0) + 1
+                st.toast(f"🎉 Successfully re-generated {len(regen_df)} test cases in standard format!", icon="✨")
+                st.rerun()
+            else:
+                prog_bar.empty()
+                st.error("AI Re-Gen could not process the active suite.")
 
     has_active_suite = (
         ("test_cases_df" in st.session_state and isinstance(st.session_state["test_cases_df"], pd.DataFrame) and not st.session_state["test_cases_df"].empty)
@@ -1800,10 +2650,33 @@ with tab1:
     )
     if has_active_suite and not st.session_state.get("suite_explicitly_cleared", False):
         st.markdown("<div style='margin-top: 8px;'></div>", unsafe_allow_html=True)
-        c_up_stat, c_up_clr = st.columns([3, 1.2])
+        c_up_stat, c_up_dl, c_up_clr = st.columns([2.5, 1.3, 1.2])
         with c_up_stat:
             count_label = len(st.session_state["test_cases_df"]) if ("test_cases_df" in st.session_state and isinstance(st.session_state["test_cases_df"], pd.DataFrame)) else "Active"
-            st.caption(f"📁 **Active Suite Loaded** ({count_label} test cases in memory). Ready to run, edit, or clear.")
+            st.caption(f"📁 **Active Suite Loaded** ({count_label} test cases in memory). Ready to run, edit, or export.")
+        with c_up_dl:
+            active_df_to_export = st.session_state.get("test_cases_df")
+            if active_df_to_export is None or not isinstance(active_df_to_export, pd.DataFrame) or active_df_to_export.empty:
+                if "auto_generated_file" in st.session_state and os.path.exists(str(st.session_state.auto_generated_file)):
+                    try:
+                        active_df_to_export = pd.read_csv(st.session_state.auto_generated_file)
+                    except Exception:
+                        active_df_to_export = None
+                elif os.path.exists("generated_tests.csv") and os.path.getsize("generated_tests.csv") > 0:
+                    try:
+                        active_df_to_export = pd.read_csv("generated_tests.csv")
+                    except Exception:
+                        active_df_to_export = None
+            if active_df_to_export is not None and isinstance(active_df_to_export, pd.DataFrame) and not active_df_to_export.empty:
+                st.download_button(
+                    "📥 Download Suite (CSV)",
+                    data=active_df_to_export.to_csv(index=False).encode("utf-8"),
+                    file_name=f"active_test_suite_{int(time.time())}.csv",
+                    mime="text/csv",
+                    width="stretch",
+                    key="tab1_btn_download_active_suite_csv",
+                    help="Download the currently active test suite as CSV",
+                )
         with c_up_clr:
             if st.button("🗑️ Clear Test Suite", type="secondary", width="stretch", key="tab1_clear_suite_btn", help="Wipes all loaded test cases from memory"):
                 clear_entire_test_suite()
@@ -1827,6 +2700,10 @@ with tab2:
         st.info(
             "Enter a URL and optional User Story/Business Flow. The AI will inspect live page elements and generate a complete test suite!"
         )
+        if "single_url_input" not in st.session_state or not st.session_state["single_url_input"]:
+            glob_u = get_global_target_url()
+            if glob_u:
+                st.session_state["single_url_input"] = glob_u
         ai_target_url = st.text_input(
             "Target Web URL",
             placeholder="https://example.com/login",
@@ -1844,72 +2721,105 @@ with tab2:
             if not is_valid_url:
                 st.warning(f"⚠️ Validation Failed: {url_err}")
                 return
-            with st.spinner(f"Generating test cases via [{target_strat}] with your User Story..."):
-                from core.ai_client import AIClient
-                from core.test_generator import TestGenerator
+            set_global_target_url(ai_target_url)
 
+            prog_bar = st.progress(0.0, text=f"⚡ [{target_strat}] Initializing browser & test engine...")
+
+            def _single_gen_cb(pct: float, msg: str):
                 try:
-                    gen = TestGenerator(AIClient())
-                    result = gen.generate_cases_from_url(
-                        ai_target_url, "generated_tests.csv", user_story=ai_user_story, strategy=target_strat
+                    prog_bar.progress(min(1.0, max(0.0, pct)), text=f"⚡ [{target_strat}] {msg}")
+                except Exception:
+                    pass
+
+            from core.ai_client import AIClient
+            from core.test_generator import TestGenerator
+
+            try:
+                gen = TestGenerator(AIClient())
+                result = gen.generate_cases_from_url(
+                    ai_target_url,
+                    "generated_tests.csv",
+                    user_story=ai_user_story,
+                    strategy=target_strat,
+                    on_progress_callback=_single_gen_cb,
+                )
+                res_path = result[0] if isinstance(result, tuple) else result
+                ss_path = result[1] if isinstance(result, tuple) else getattr(gen, "last_screenshot", "")
+
+                if res_path and os.path.exists(res_path) and os.path.getsize(res_path) > 0:
+                    prog_bar.progress(1.0, text=f"🎉 Successfully generated [{target_strat}] test suite!")
+                    time.sleep(0.35)
+                    st.session_state.auto_generated_file = res_path
+                    st.session_state.last_analysis_ss = ss_path
+                    if "results_df" in st.session_state:
+                        del st.session_state["results_df"]
+                    st.session_state["grid_version"] = st.session_state.get("grid_version", 0) + 1
+                    try:
+                        df_gen = pd.read_csv(res_path)
+                    except pd.errors.EmptyDataError:
+                        df_gen = pd.DataFrame(columns=["Run", "Type", "Target", "Test_Step_Description", "Expected_Result", "Status", "Duration", "Actual_Result", "Screenshot", "Execution_Notes", "Playwright_Code"])
+                    st.session_state["test_cases_df"] = normalize_test_dataframe(df_gen, default_target=ai_target_url)
+                    st.session_state["single_gen_success_msg"] = f"✅ Successfully generated {len(df_gen)} test cases using [{target_strat}] for: {ai_target_url}"
+                    st.rerun()
+                else:
+                    prog_bar.empty()
+                    st.error("Failed to generate test cases. Please ensure the target URL is accessible and try again.")
+            except Exception as ve:
+                prog_bar.empty()
+                st.error(f"Generation Error: {ve}")
+
+        if st.session_state.get("single_gen_success_msg"):
+            c_s_msg, c_s_dl = st.columns([3.2, 1.2])
+            with c_s_msg:
+                st.success(st.session_state["single_gen_success_msg"])
+            with c_s_dl:
+                df_curr = st.session_state.get("test_cases_df")
+                if df_curr is not None and isinstance(df_curr, pd.DataFrame) and not df_curr.empty:
+                    st.download_button(
+                        "📥 Download Suite (CSV)",
+                        data=df_curr.to_csv(index=False).encode("utf-8"),
+                        file_name=f"generated_single_tests_{int(time.time())}.csv",
+                        mime="text/csv",
+                        width='stretch',
+                        key="btn_dl_single_url_csv_top",
+                        help="Download generated test cases as CSV",
                     )
-                    res_path = result[0] if isinstance(result, tuple) else result
-                    ss_path = result[1] if isinstance(result, tuple) else getattr(gen, "last_screenshot", "")
+            if st.session_state.get("last_analysis_ss") and os.path.exists(st.session_state["last_analysis_ss"]):
+                ss_p = st.session_state["last_analysis_ss"]
+                with st.expander(f"📸 Click to View Inspected Page Snapshot ({os.path.basename(ss_p)})", expanded=False):
+                    safe_st_image(ss_p, caption=f"Inspected Page Snapshot: {ss_p}", width="stretch")
 
-                    if res_path and os.path.exists(res_path) and os.path.getsize(res_path) > 0:
-                        st.session_state.auto_generated_file = res_path
-                        st.session_state.last_analysis_ss = ss_path
-                        if "results_df" in st.session_state:
-                            del st.session_state["results_df"]
-                        st.session_state["grid_version"] = st.session_state.get("grid_version", 0) + 1
-                        try:
-                            df_gen = pd.read_csv(res_path)
-                        except pd.errors.EmptyDataError:
-                            df_gen = pd.DataFrame(columns=["Run", "Type", "Target", "Test_Step_Description", "Expected_Result", "Status", "Duration", "Actual_Result", "Screenshot", "Execution_Notes", "Playwright_Code"])
-                        st.session_state["test_cases_df"] = normalize_test_dataframe(df_gen, default_target=ai_target_url)
-                        st.success(f"✅ Successfully generated {len(df_gen)} test cases using [{target_strat}] for: {ai_target_url}")
-                        if ss_path and os.path.exists(ss_path):
-                            with st.expander(f"📸 Click to View Inspected Page Snapshot ({os.path.basename(ss_path)})", expanded=False):
-                                safe_st_image(ss_path, caption=f"Inspected Page Snapshot: {ss_path}", width="stretch")
-                        st.rerun()
-                    else:
-                        st.error("Failed to generate test cases. Please ensure the target URL is accessible and try again.")
-                except Exception as ve:
-                    st.error(f"Generation Error: {ve}")
-
-        st.markdown(
-            """<div style="margin-top: 6px; margin-bottom: 6px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
-                <div style="display: flex; align-items: center; gap: 6px;">
-                    <span style="font-size: 1rem;">⚡</span>
-                    <strong style="color: #F8FAFC; font-size: 0.90rem;">1-Click Test Generation Buttons</strong>
-                    <span style="color: #94A3B8; font-size: 0.82rem;">— Click any engine to generate tests instantly:</span>
-                </div>
-            </div>""",
-            unsafe_allow_html=True,
-        )
-        c_g_all, c_g_ai, c_g_hyb, c_g_rule, c_g_clr = st.columns([1.5, 1.4, 1.4, 1.5, 0.9])
-        with c_g_all:
-            if st.button("🌐 All (360°)", type="primary", width='stretch', key="btn_gen_single_all", help="Generate full 360° suite across AI + Hybrid + Rule Engine"):
-                _run_single_url_generation("all")
-        with c_g_ai:
-            if st.button("🤖 AI Only", width='stretch', key="btn_gen_single_ai", help="Generate purely 🤖 AI Generated (Full) tests"):
-                _run_single_url_generation("ai_full")
-        with c_g_hyb:
-            if st.button("🤖+⚙️ Hybrid", width='stretch', key="btn_gen_single_hybrid", help="Generate 🤖 AI Step + ⚙️ Template Code tests"):
-                _run_single_url_generation("hybrid")
-        with c_g_rule:
-            if st.button("⚙️ Rule Only", width='stretch', key="btn_gen_single_rule", help="Generate 100% deterministic ⚙️ Rule Engine tests (0 tokens, offline)"):
-                _run_single_url_generation("rule_engine")
-        with c_g_clr:
+        c_sg_strat, c_sg_btn, c_sg_clr = st.columns([2.2, 1.4, 0.8], vertical_alignment="bottom")
+        with c_sg_strat:
+            single_strat = st.selectbox(
+                "Generation Engine Strategy",
+                options=[
+                    ("all", "🌐 Full 360° Suite (AI + Hybrid + Rule Engine)"),
+                    ("robust_v4", "⚡ RobustEngine v4 (7-Category Deep Matrix - 100% Guaranteed)"),
+                    ("ai_full", "🤖 AI Generated (Full Scenarios & Code)"),
+                    ("hybrid", "🤖+⚙️ Hybrid (AI Steps + Deterministic Code)"),
+                    ("rule_engine", "⚙️ Rule Engine (DOM/A11y/Network - 0 Tokens)"),
+                ],
+                format_func=lambda x: x[1],
+                key="single_gen_strategy_select",
+                help="Choose which engine strategy to run against the target URL"
+            )
+        with c_sg_btn:
+            s_strat_key, _ = single_strat
+            if st.button("⚡ Generate Suite", type="primary", width="stretch", key="btn_gen_single_url_action"):
+                _run_single_url_generation(s_strat_key)
+        with c_sg_clr:
             def _cb_clear_single_url():
                 st.session_state["single_url_input"] = ""
                 st.session_state["single_user_story_input"] = ""
+                st.session_state.pop("single_gen_success_msg", None)
 
             st.button(
-                "🧹 Clear Inputs",
+                "🧹 Clear",
                 on_click=_cb_clear_single_url,
                 type="secondary",
                 width='stretch',
+                key="btn_clear_single_url",
                 help="Clear target URL and user story fields"
             )
 
@@ -1917,6 +2827,10 @@ with tab2:
         st.info(
             "🔬 **Deep Multi-Layer Inspection Engine**: Deeply audits target screens using **Native Accessibility (A11y) Trees**, **Active Dynamic Mutation Probing** (opens drawers/dropdowns & auto-resets), and **CDP HTML5 Constraint & Network Sniffing**."
         )
+        if "deep_inspector_url_input" not in st.session_state or not st.session_state["deep_inspector_url_input"]:
+            glob_u = get_global_target_url()
+            if glob_u:
+                st.session_state["deep_inspector_url_input"] = glob_u
         deep_target_url = st.text_input(
             "Target Web URL to Inspect",
             placeholder="https://example.com/dashboard",
@@ -1930,20 +2844,45 @@ with tab2:
                 if not is_valid_url:
                     st.warning(f"⚠️ Validation Failed: {url_err}")
                 else:
+                    set_global_target_url(deep_target_url)
                     status_box = st.empty()
+                    deep_prog = st.progress(0.0, text="🔬 Launching Deep Multi-Layer Inspector...")
+
                     def _update_status(msg):
-                        status_box.info(msg)
-                    
-                    with st.spinner("Executing Deep Multi-Layer Inspection..."):
-                        from core.deep_inspector import DeepScreenInspector
+                        pct = 0.10
+                        msg_str = str(msg)
+                        if "Launching" in msg_str:
+                            pct = 0.15
+                        elif "Navigating" in msg_str:
+                            pct = 0.30
+                        elif "Accessibility" in msg_str or "A11y" in msg_str:
+                            pct = 0.50
+                        elif "Introspecting" in msg_str or "KPI" in msg_str:
+                            pct = 0.70
+                        elif "Probing" in msg_str:
+                            pct = 0.85
+                        elif "Audit" in msg_str or "Web Quality" in msg_str:
+                            pct = 0.95
+                        elif "Complete" in msg_str:
+                            pct = 1.00
                         try:
-                            inspector = DeepScreenInspector(headless=not show_browser)
-                            insp_result = inspector.inspect_url(deep_target_url, status_callback=_update_status)
-                            st.session_state["deep_inspection_result"] = insp_result
-                            st.success(f"✅ Deep Inspection Completed in {insp_result['performance_metrics']['total_duration_sec']}s!")
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"Deep Inspection Failed: {e}")
+                            deep_prog.progress(min(1.0, max(0.0, pct)), text=f"🔬 {msg_str}")
+                        except Exception:
+                            pass
+                        status_box.info(msg_str)
+
+                    from core.deep_inspector import DeepScreenInspector
+                    try:
+                        inspector = DeepScreenInspector(headless=not show_browser)
+                        insp_result = inspector.inspect_url(deep_target_url, status_callback=_update_status)
+                        deep_prog.progress(1.0, text=f"✅ Deep Inspection Complete in {insp_result['performance_metrics']['total_duration_sec']}s!")
+                        time.sleep(0.35)
+                        st.session_state["deep_inspection_result"] = insp_result
+                        st.success(f"✅ Deep Inspection Completed in {insp_result['performance_metrics']['total_duration_sec']}s!")
+                        st.rerun()
+                    except Exception as e:
+                        deep_prog.empty()
+                        st.error(f"Deep Inspection Failed: {e}")
         with c_dp2:
             def _cb_clear_deep():
                 st.session_state["deep_inspector_url_input"] = ""
@@ -2085,57 +3024,67 @@ with tab2:
                     st.success(f"🎉 Successfully synthesized and loaded {len(synth_cases)} test cases using [{label_name}] into the execution grid!")
                     st.rerun()
 
-            st.markdown(
-                """<div style="margin-top: 6px; margin-bottom: 6px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
-                    <div style="display: flex; align-items: center; gap: 6px;">
-                        <span style="font-size: 1rem;">⚡</span>
-                        <strong style="color: #F8FAFC; font-size: 0.90rem;">1-Click Test Generation Buttons</strong>
-                        <span style="color: #94A3B8; font-size: 0.82rem;">— Synthesize tests from blueprint in 1 click:</span>
-                    </div>
-                </div>""",
-                unsafe_allow_html=True,
-            )
-            c_d_all, c_d_ai, c_d_hyb, c_d_rule = st.columns(4)
-            with c_d_all:
-                if st.button("🌐 All (360°)", type="primary", width='stretch', key="btn_deep_gen_all", help="Generate full 360° suite across AI + Hybrid + Rule Engine"):
-                    _run_deep_synthesis("all", "🌐 Full 360° Suite")
-            with c_d_ai:
-                if st.button("🤖 AI Full", width='stretch', key="btn_deep_gen_ai", help="Purely AI LLM generated scenarios & Playwright scripts"):
-                    _run_deep_synthesis("ai_full", "🤖 AI Generated (Full)")
-            with c_d_hyb:
-                if st.button("🤖+⚙️ Hybrid", width='stretch', key="btn_deep_gen_hybrid", help="AI test steps with deterministic template Playwright scripts"):
-                    _run_deep_synthesis("hybrid", "🤖+⚙️ Hybrid")
-            with c_d_rule:
-                if st.button("⚙️ Rule Engine", width='stretch', key="btn_deep_gen_rule", help="100% deterministic test matrix derived from DOM/A11y/Network (0 tokens, offline)"):
-                    _run_deep_synthesis("rule_engine", "⚙️ Rule Engine")
-
-            c_gen_syn2, c_gen_syn3 = st.columns([1.5, 1])
-            with c_gen_syn2:
-                if st.button("🛡️ Generate Full 40-Point Web Quality Test Suite", type="secondary", width='stretch', help="Synthesize 40 automated Playwright tests verifying responsive layout, mobile menu, touch targets, accessibility WCAG 2.1 AA, broken links, SEO metadata, DOM budget, and security"):
-                    from core.deep_inspector import DeepScreenInspector
-                    inspector = DeepScreenInspector()
-                    wq_cases = inspector.generate_twenty_point_checklist_cases(res)
-                    if wq_cases:
-                        out_csv = "deep_inspected_tests.csv"
-                        df_wq = pd.DataFrame(wq_cases)
-                        df_wq.to_csv(out_csv, index=False)
-                        st.session_state.auto_generated_file = out_csv
-                        st.session_state.blank_suite = False
-                        if "results_df" in st.session_state:
-                            del st.session_state["results_df"]
-                        st.session_state["grid_version"] = st.session_state.get("grid_version", 0) + 1
-                        st.session_state["test_cases_df"] = normalize_test_dataframe(df_wq, default_target=res.get("target_url", ""))
-                        st.success(f"🛡️ Loaded all {len(wq_cases)} Web Quality, Mobile, SEO & Accessibility test cases into the Test Suite Grid!")
-                        st.rerun()
-            with c_gen_syn3:
-                json_str = json.dumps(res, indent=2, default=str)
-                st.download_button(
-                    "📥 Export Blueprint JSON",
-                    data=json_str,
-                    file_name=f"deep_inspection_{int(time.time())}.json",
-                    mime="application/json",
-                    width='stretch'
+            c_strat, c_syn_btn, c_export_pop = st.columns([2.2, 1.4, 0.9], vertical_alignment="bottom")
+            with c_strat:
+                synth_strategy = st.selectbox(
+                    "Test Synthesis Strategy",
+                    options=[
+                        ("all", "🌐 Full 360° Suite (AI + Hybrid + Rule Engine)"),
+                        ("ai_full", "🤖 AI Generated (Full Scenarios & Code)"),
+                        ("hybrid", "🤖+⚙️ Hybrid (AI Steps + Deterministic Code)"),
+                        ("rule_engine", "⚙️ Rule Engine (DOM/A11y/Network - 0 Tokens)"),
+                        ("web_quality", "🛡️ 40-Point Web Quality, Mobile & A11y Suite"),
+                    ],
+                    format_func=lambda x: x[1],
+                    key="deep_synth_strategy_select",
+                    help="Select the test generation methodology to synthesize from this screen inspection"
                 )
+            with c_syn_btn:
+                strat_key, strat_label = synth_strategy
+                if st.button("⚡ Synthesize Suite", type="primary", width="stretch", key="btn_deep_gen_suite", help=f"Generate tests using {strat_label}"):
+                    if strat_key == "web_quality":
+                        from core.deep_inspector import DeepScreenInspector
+                        inspector = DeepScreenInspector()
+                        wq_cases = inspector.generate_twenty_point_checklist_cases(res)
+                        if wq_cases:
+                            out_csv = "deep_inspected_tests.csv"
+                            df_wq = pd.DataFrame(wq_cases)
+                            df_wq.to_csv(out_csv, index=False)
+                            st.session_state.auto_generated_file = out_csv
+                            st.session_state.blank_suite = False
+                            if "results_df" in st.session_state:
+                                del st.session_state["results_df"]
+                            st.session_state["grid_version"] = st.session_state.get("grid_version", 0) + 1
+                            st.session_state["test_cases_df"] = normalize_test_dataframe(df_wq, default_target=res.get("target_url", ""))
+                            st.success(f"🛡️ Loaded all {len(wq_cases)} Web Quality, Mobile, SEO & Accessibility test cases into the Test Suite Grid!")
+                            st.rerun()
+                    else:
+                        _run_deep_synthesis(strat_key, strat_label)
+            with c_export_pop:
+                with st.popover("📥 Export", width="stretch", help="Export inspection blueprint or 40-point CSV"):
+                    json_str = json.dumps(res, indent=2, default=str)
+                    st.download_button(
+                        "📄 Blueprint JSON",
+                        data=json_str,
+                        file_name=f"deep_inspection_{int(time.time())}.json",
+                        mime="application/json",
+                        width='stretch',
+                        key="btn_deep_export_blueprint_json"
+                    )
+                    if os.path.exists("deep_inspected_tests.csv") and os.path.getsize("deep_inspected_tests.csv") > 0:
+                        try:
+                            df_di_exist = pd.read_csv("deep_inspected_tests.csv")
+                            st.download_button(
+                                "📊 Quality CSV",
+                                data=df_di_exist.to_csv(index=False).encode("utf-8"),
+                                file_name=f"deep_quality_tests_{int(time.time())}.csv",
+                                mime="text/csv",
+                                width='stretch',
+                                key="btn_deep_download_csv_ready",
+                                help="Download synthesized 40-point quality test cases as CSV"
+                            )
+                        except Exception:
+                            pass
 
     elif generation_type in ["🗺️ App Flow & Visual Explorer (Multi-Page)", "📱 Mobile App (Android Auto-Crawler)"]:
         if generation_type == "📱 Mobile App (Android Auto-Crawler)":
@@ -2186,10 +3135,12 @@ with tab2:
                         "Number of Screens to Auto-Crawl (0 = Uncapped / Full App Discovery)",
                         min_value=0,
                         max_value=1000,
-                        value=20,
+                        value=int(st.session_state.get("global_mob_screens_cnt", 20)),
                         step=5,
+                        key="mob_screens_cnt_num",
                         help="Set 0 to crawl without any screen limit until all screens and flows are discovered"
                     )
+                    st.session_state["global_mob_screens_cnt"] = mob_screens_cnt
                 with c_mc2:
                     flow_user_story = st.text_input("User Story / Testing Objectives (Optional)", placeholder="e.g. Verify grocery categories, open top picks, and check search bar", key="mob_flow_user_story")
 
@@ -2251,18 +3202,72 @@ with tab2:
                     st.button("🗑️ Reset Flow", on_click=_cb_reset_mob_flow, type="secondary", width="stretch")
         else:
             st.info(
-                "🧭 **Application Flow Discovery**: The AI explores your app flows, tabs, and sub-pages, capturing full screenshots for each functionality before generating end-to-end tests."
+                "🧭 **Application Flow Discovery**: The AI explores your app flows, tabs, and sub-pages, capturing full screenshots for each functionality before generating end-to-end tests.\n\n"
+                "💡 **Tip**: If your target web application requires login or OTP authentication, capture your session first under **🔐 Session & Login Capture**, or use **🎥 Live Flow Recorder** to log in and capture screens interactively!"
             )
-            flow_target_url = st.text_input(
-                "Application Root / Start URL",
-                placeholder="https://example.com/app or com.zeptoconsumerapp",
-                key="flow_explorer_url",
-            )
-            c_flow1, c_flow2 = st.columns([1, 1])
+            # Auto-populate flow URL from global target or active session if unset
+            if "flow_explorer_url" not in st.session_state or not str(st.session_state.get("flow_explorer_url", "")).strip():
+                fallback_url = get_global_target_url()
+                if fallback_url:
+                    st.session_state["flow_explorer_url"] = fallback_url
+
+            c_flow_url, c_flow_snap = st.columns([2.6, 1.4], vertical_alignment="bottom")
+            with c_flow_url:
+                flow_target_url = st.text_input(
+                    "Application Root / Start URL",
+                    placeholder="https://example.com/app or com.zeptoconsumerapp",
+                    key="flow_explorer_url",
+                )
+            with c_flow_snap:
+                manual_screen_name = st.text_input(
+                    "Custom Screen Name (for manual capture)",
+                    placeholder="e.g. Lead Details Modal",
+                    key="manual_screen_name_input",
+                )
+
+            c_flow1, c_flow_view, c_flow_limit, c_flow_depth = st.columns([1.5, 1.3, 0.9, 0.9], vertical_alignment="bottom")
             with c_flow1:
-                deep_crawl_all = st.checkbox("🔍 Comprehensive Mode: Explore All Screens, Sub-Tabs & Action Modals", value=True, help="Autonomously clicks all menus, sub-tabs, filters, and action buttons to capture every modal, form, and view state")
-            with c_flow2:
-                manual_screen_name = st.text_input("Custom Screen Name (for manual capture)", placeholder="e.g. Lead Details Modal", key="manual_screen_name_input")
+                deep_crawl_all = st.checkbox(
+                    "🔍 Comprehensive Mode: Explore All Screens, Sub-Tabs & Modals",
+                    value=bool(st.session_state.get("global_deep_crawl_all", True)),
+                    key="flow_deep_crawl_all_chk",
+                    help="Autonomously clicks all slide menus, dropdowns, sub-tabs, filters, and action buttons to capture every modal, form, and view state",
+                )
+                st.session_state["global_deep_crawl_all"] = deep_crawl_all
+            with c_flow_view:
+                # Synchronized with global show_browser setting
+                flow_show_browser = st.checkbox(
+                    "🖥️ Show Live Browser Window",
+                    value=bool(st.session_state.get("show_browser", True)),
+                    key="flow_show_browser_window",
+                    help="Launches a visible Chromium/Edge browser window on your desktop so you can watch the AI navigate, click tabs, and capture screens live in real time",
+                )
+                if flow_show_browser != st.session_state.get("show_browser"):
+                    st.session_state["show_browser"] = flow_show_browser
+                    st.session_state["_persisted_show_browser"] = flow_show_browser
+                    save_settings({"show_browser": flow_show_browser}, force=True)
+                    if flow_show_browser:
+                        os.environ["SHOW_BROWSER"] = "true"
+                    else:
+                        os.environ.pop("SHOW_BROWSER", None)
+            with c_flow_limit:
+                flow_max_screens = st.number_input(
+                    "Max Screens (0 = Unlimited)",
+                    min_value=0,
+                    value=int(st.session_state.get("global_flow_max_screens", 0)),
+                    key="flow_max_screens_num",
+                    help="Set to 0 to crawl all modules, slide menus, tabs, and modals without any screen limit.",
+                )
+                st.session_state["global_flow_max_screens"] = flow_max_screens
+            with c_flow_depth:
+                flow_max_depth = st.number_input(
+                    "Max Depth (0 = Unlimited)",
+                    min_value=0,
+                    value=int(st.session_state.get("global_flow_max_depth", 0)),
+                    key="flow_max_depth_num",
+                    help="Set to 0 to crawl child routes and nested pages without any recursion depth limit (or specify e.g. 3, 5).",
+                )
+                st.session_state["global_flow_max_depth"] = flow_max_depth
 
             flow_user_story = st.text_area(
                 "📖 User Story & Flow Objectives (Optional)",
@@ -2271,18 +3276,30 @@ with tab2:
                 key="flow_user_story_input",
             )
 
-            col_act1, col_act2, col_act3, col_act4, col_act5 = st.columns([1.5, 1.6, 1.2, 0.9, 0.9])
-            with col_act1:
+            def _resolve_flow_url() -> str:
+                t = str(st.session_state.get("flow_explorer_url", "")).strip()
+                if not t:
+                    t = str(flow_target_url or "").strip()
+                if not t:
+                    t = get_global_target_url()
+                if t:
+                    st.session_state["flow_explorer_url"] = t
+                    set_global_target_url(t)
+                return t
+
+            c_act1, c_act2, c_act3, c_act4, c_act5 = st.columns([1.6, 1.4, 1.4, 0.8, 0.9], vertical_alignment="bottom")
+            with c_act1:
                 if st.button("🧭 AI Auto-Explore", type="primary", width='stretch', help="Autonomously crawl internal routes, tabs, and capture all screens"):
-                    is_valid_u, u_err = validate_url(flow_target_url)
+                    eff_url = _resolve_flow_url()
+                    is_valid_u, u_err = validate_url(eff_url)
                     if not is_valid_u:
-                        st.warning(f"⚠️ Validation Failed: {u_err}")
+                        st.warning(f"⚠️ Validation Failed: {u_err}. Please enter an Application Root / Start URL above.")
                     else:
                         progress_flow = st.progress(0)
                         status_flow = st.empty()
-                        is_android_target = str(flow_target_url).strip().startswith("android://") or bool(re.match(r"^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*)+$", str(flow_target_url).strip()))
+                        is_android_target = str(eff_url).strip().startswith("android://") or bool(re.match(r"^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*)+$", str(eff_url).strip()))
 
-                        target_max_screens = 0 if deep_crawl_all else 30
+                        target_max_screens = int(flow_max_screens) if flow_max_screens > 0 else (0 if deep_crawl_all else 30)
 
                         def on_flow_progress(step, msg, record):
                             denom = float(target_max_screens) if target_max_screens > 0 else 50.0
@@ -2290,81 +3307,67 @@ with tab2:
                             status_flow.text(msg)
 
                         if is_android_target:
-                            with st.spinner(f"AI is autonomously crawling Android app '{flow_target_url}' on your phone..."):
+                            with st.spinner(f"AI is autonomously crawling Android app '{eff_url}' on your phone..."):
                                 from core.device_bridge import explore_android_app_flow
                                 try:
                                     flow_res = explore_android_app_flow(
-                                        package_name=flow_target_url.strip(),
+                                        package_name=eff_url.strip(),
                                         max_screens=target_max_screens,
                                         on_progress_callback=on_flow_progress,
                                     )
                                     st.session_state.discovered_flow = flow_res
                                     progress_flow.progress(1.0)
                                     if flow_res.get("total_screens", 0) > 0:
+                                        st.toast(f"✅ Captured {flow_res.get('total_screens', 0)} mobile screens!", icon="🧭")
                                         st.success(f"✅ Successfully captured {flow_res.get('total_screens', 0)} mobile application screens & user flows!")
                                         st.rerun()
                                     else:
-                                        st.warning(f"⚠️ Exploration finished, but 0 screens were captured from '{flow_target_url}'. Make sure your device is connected with USB Debugging enabled.")
+                                        st.warning(f"⚠️ Exploration finished, but 0 screens were captured from '{eff_url}'. Make sure your device is connected with USB Debugging enabled.")
                                 except Exception as afe:
                                     st.error(f"Mobile Exploration Error: {afe}")
                         else:
-                            with st.spinner("AI is crawling all application routes, sub-tabs, action buttons, and capturing modal dialogs..."):
+                            with st.spinner("AI is crawling all application routes, sub-tabs, slide menus, dropdowns, and capturing modal dialogs..."):
                                 from core.flow_explorer import AppFlowExplorer
                                 try:
+                                    if flow_show_browser:
+                                        os.environ["SHOW_BROWSER"] = "true"
+                                    else:
+                                        os.environ.pop("SHOW_BROWSER", None)
+
                                     explorer = AppFlowExplorer()
                                     flow_res = explorer.explore_app_flows(
-                                        start_url=flow_target_url,
-                                        max_screens=100 if deep_crawl_all else 10,
+                                        start_url=eff_url,
+                                        max_screens=target_max_screens,
+                                        max_depth=int(flow_max_depth),
                                         explore_deep_subfeatures=deep_crawl_all,
                                         on_progress_callback=on_flow_progress,
+                                        headless=not flow_show_browser,
                                     )
                                     st.session_state.discovered_flow = flow_res
                                     progress_flow.progress(1.0)
                                     if flow_res.get("total_screens", 0) > 0:
+                                        st.toast(f"✅ Captured {flow_res.get('total_screens', 0)} screens & flows!", icon="🧭")
                                         st.success(f"✅ Successfully captured {flow_res.get('total_screens', 0)} application screens & user flows!")
                                         st.rerun()
                                     else:
-                                        st.warning(f"⚠️ Exploration finished, but 0 screens were captured from '{flow_target_url}'. Please ensure the URL is reachable and that credentials are configured in Settings if the application requires authentication.")
+                                        st.warning(f"⚠️ Exploration finished, but 0 screens were captured from '{eff_url}'. Please ensure the URL is reachable and that credentials are configured in Settings if the application requires authentication.")
                                 except Exception as fe:
                                     st.error(f"Flow Exploration Error: {fe}")
 
-            with col_act2:
-                if st.button("🎥 Open Live Flow Recorder", type="secondary", width='stretch', help="Opens a visible browser with a floating toolbar to navigate and record custom screens/modals interactively"):
-                    is_valid_u, u_err = validate_url(flow_target_url)
+            with c_act2:
+                if st.button("📸 Instant Snapshot", type="secondary", width='stretch', key="flow_btn_instant_snap", help="Directly capture the current screen or modal into your flow map"):
+                    eff_url = _resolve_flow_url()
+                    is_valid_u, u_err = validate_url(eff_url)
                     if not is_valid_u:
-                        st.warning(f"⚠️ Validation Failed: {u_err}")
+                        st.warning(f"⚠️ Validation Failed: {u_err}. Please enter an Application Root / Start URL above.")
                     else:
-                        st.info("🔴 Live Flow Recorder is open! Navigate across screens, open modals/drawers, and click '📸 Capture Screen' or '✅ Done & Save' in the browser dock.")
-                        from core.flow_explorer import AppFlowExplorer
-                        try:
-                            explorer = AppFlowExplorer()
-                            rec_res = explorer.launch_interactive_recorder(flow_target_url, timeout_seconds=300)
-                            if rec_res.get("screens"):
-                                if "discovered_flow" not in st.session_state or not st.session_state.discovered_flow:
-                                    st.session_state.discovered_flow = rec_res
-                                else:
-                                    st.session_state.discovered_flow["screens"].extend(rec_res["screens"])
-                                    st.session_state.discovered_flow["total_screens"] = len(st.session_state.discovered_flow["screens"])
-                                st.success(f"🎉 Successfully recorded and added {len(rec_res['screens'])} screens to your flow map!")
-                                st.rerun()
-                            else:
-                                st.warning("No screens were captured during the recording session.")
-                        except Exception as re:
-                            st.error(f"Flow Recorder Error: {re}")
-
-            with col_act3:
-                if st.button("📸 Instant Snapshot", type="secondary", width='stretch', help="Take an immediate single snapshot of the current URL or Android app"):
-                    is_valid_u, u_err = validate_url(flow_target_url)
-                    if not is_valid_u:
-                        st.warning(f"⚠️ Validation Failed: {u_err}")
-                    else:
-                        is_android_target = str(flow_target_url).strip().startswith("android://") or bool(re.match(r"^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*)+$", str(flow_target_url).strip()))
+                        is_android_target = str(eff_url).strip().startswith("android://") or bool(re.match(r"^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*)+$", str(eff_url).strip()))
                         if is_android_target:
-                            with st.spinner(f"Capturing current Android screen for '{flow_target_url}'..."):
+                            with st.spinner(f"Capturing current Android screen for '{eff_url}'..."):
                                 from core.device_bridge import explore_android_app_flow
                                 try:
                                     flow_res = explore_android_app_flow(
-                                        package_name=flow_target_url.strip(),
+                                        package_name=eff_url.strip(),
                                         max_screens=1,
                                     )
                                     if flow_res.get("screens"):
@@ -2373,38 +3376,77 @@ with tab2:
                                             screen_rec["name"] = manual_screen_name
                                         if "discovered_flow" not in st.session_state or not st.session_state.discovered_flow:
                                             st.session_state.discovered_flow = {
-                                                "start_url": flow_target_url,
+                                                "start_url": eff_url,
                                                 "total_screens": 1,
                                                 "screens": [screen_rec],
                                             }
                                         else:
                                             st.session_state.discovered_flow["screens"].append(screen_rec)
                                             st.session_state.discovered_flow["total_screens"] = len(st.session_state.discovered_flow["screens"])
+                                        st.toast(f"✅ Added Mobile Screen: '{screen_rec['name']}' to flow map!", icon="📸")
                                         st.success(f"✅ Added Mobile Screen: '{screen_rec['name']}' to flow map!")
                                         st.rerun()
+                                    else:
+                                        st.warning("No screen could be captured from the Android device.")
                                 except Exception as me:
                                     st.error(f"Mobile Snapshot Error: {me}")
                         else:
-                            with st.spinner(f"Capturing current screen for {flow_target_url}..."):
+                            with st.spinner(f"Capturing current screen for {eff_url}..."):
                                 from core.flow_explorer import AppFlowExplorer
                                 try:
+                                    if flow_show_browser:
+                                        os.environ["SHOW_BROWSER"] = "true"
+                                    else:
+                                        os.environ.pop("SHOW_BROWSER", None)
+
                                     explorer = AppFlowExplorer()
-                                    screen_rec = explorer.capture_single_screen(flow_target_url, manual_screen_name)
+                                    screen_rec = explorer.capture_single_screen(
+                                        eff_url,
+                                        manual_screen_name,
+                                        headless=not flow_show_browser,
+                                    )
                                     if "discovered_flow" not in st.session_state or not st.session_state.discovered_flow:
                                         st.session_state.discovered_flow = {
-                                            "start_url": flow_target_url,
+                                            "start_url": eff_url,
                                             "total_screens": 1,
                                             "screens": [screen_rec],
                                         }
                                     else:
                                         st.session_state.discovered_flow["screens"].append(screen_rec)
                                         st.session_state.discovered_flow["total_screens"] = len(st.session_state.discovered_flow["screens"])
+                                    st.toast(f"✅ Added Screen: '{screen_rec['name']}' to flow map!", icon="📸")
                                     st.success(f"✅ Added Screen: '{screen_rec['name']}' to flow map!")
                                     st.rerun()
                                 except Exception as me:
                                     st.error(f"Manual Capture Error: {me}")
 
-            with col_act4:
+            with c_act3:
+                if st.button("🎥 Live Flow Recorder", type="secondary", width='stretch', help="Opens a visible browser with a floating toolbar to navigate and record custom screens/modals interactively"):
+                    eff_url = _resolve_flow_url()
+                    is_valid_u, u_err = validate_url(eff_url)
+                    if not is_valid_u:
+                        st.warning(f"⚠️ Validation Failed: {u_err}. Please enter an Application Root / Start URL above.")
+                    else:
+                        st.info("🔴 Live Flow Recorder is open! Navigate across screens, open modals/drawers, and click '📸 Capture Screen' or '✅ Done & Save' in the browser dock.")
+                        from core.flow_explorer import AppFlowExplorer
+                        try:
+                            explorer = AppFlowExplorer()
+                            rec_res = explorer.launch_interactive_recorder(eff_url, timeout_seconds=7200)
+                            if rec_res.get("screens"):
+                                if "discovered_flow" not in st.session_state or not st.session_state.discovered_flow:
+                                    st.session_state.discovered_flow = rec_res
+                                else:
+                                    st.session_state.discovered_flow["screens"].extend(rec_res["screens"])
+                                    st.session_state.discovered_flow["total_screens"] = len(st.session_state.discovered_flow["screens"])
+                                st.toast(f"🎉 Recorded and added {len(rec_res['screens'])} screens!", icon="🎥")
+                                st.success(f"🎉 Successfully recorded and added {len(rec_res['screens'])} screens to your flow map!")
+                                st.rerun()
+                            else:
+                                st.warning("No screens were captured during the recording session.")
+                        except Exception as re:
+                            st.error(f"Flow Recorder Error: {re}")
+
+            with c_act4:
                 def _cb_clear_flow_inputs():
                     st.session_state["flow_explorer_url"] = ""
                     st.session_state["manual_screen_name_input"] = ""
@@ -2415,21 +3457,39 @@ with tab2:
                     on_click=_cb_clear_flow_inputs,
                     type="secondary",
                     width='stretch',
-                    help="Clear input fields"
+                    key="btn_clear_flow_inputs",
+                    help="Clear URL, screen name, and user story input fields"
                 )
 
-            with col_act5:
+            with c_act5:
                 def _cb_reset_flow():
-                    if "discovered_flow" in st.session_state:
-                        del st.session_state["discovered_flow"]
+                    st.session_state.pop("discovered_flow", None)
+                    st.session_state.pop("selected_flow_screens", None)
+                    st.session_state.pop("screen_multiselect_box", None)
+                    st.session_state.pop("flow_labels_sig", None)
+                    st.session_state.pop("flow_gen_success_msg", None)
 
-                st.button(
-                    "🗑️ Reset",
-                    on_click=_cb_reset_flow,
-                    type="secondary",
-                    width='stretch',
-                    help="Clear discovered screens from flow map"
-                )
+                if st.button("🗑️ Reset Map", type="secondary", width='stretch', key="btn_reset_flow_map", help="Reset and clear all discovered screens"):
+                    _cb_reset_flow()
+                    st.toast("🗑️ Flow map reset successfully!", icon="✅")
+                    st.rerun()
+
+        if "discovered_flow" not in st.session_state or not st.session_state.discovered_flow.get("screens"):
+            with st.expander("📂 Load Saved Flow Map (JSON)", expanded=False):
+                st.caption("Upload a previously exported flow map JSON file to instantly restore your discovered application screens:")
+                up_flow_empty = st.file_uploader("Choose flow map JSON file", type=["json"], key="flow_uploader_empty")
+                if up_flow_empty is not None:
+                    try:
+                        data_empty = json.load(up_flow_empty)
+                        if isinstance(data_empty, dict) and "screens" in data_empty:
+                            st.session_state.discovered_flow = data_empty
+                            st.session_state.pop("flow_labels_sig", None)
+                            st.toast(f"✅ Loaded {len(data_empty['screens'])} screens from JSON!", icon="📂")
+                            st.rerun()
+                        else:
+                            st.error("Invalid flow map JSON format (missing 'screens' array).")
+                    except Exception as e_up:
+                        st.error(f"Error parsing JSON: {e_up}")
 
         # Display Discovered Flow Gallery
         if "discovered_flow" in st.session_state and st.session_state.discovered_flow.get("screens"):
@@ -2439,21 +3499,36 @@ with tab2:
             st.divider()
 
             if st.session_state.get("flow_gen_success_msg"):
-                st.success(st.session_state.pop("flow_gen_success_msg"))
+                c_fmsg1, c_fmsg2 = st.columns([3.2, 1.2])
+                with c_fmsg1:
+                    st.success(st.session_state.get("flow_gen_success_msg"))
+                with c_fmsg2:
+                    df_f_cur = st.session_state.get("test_cases_df")
+                    if df_f_cur is not None and isinstance(df_f_cur, pd.DataFrame) and not df_f_cur.empty:
+                        st.download_button(
+                            "📥 Download Suite (CSV)",
+                            data=df_f_cur.to_csv(index=False).encode("utf-8"),
+                            file_name=f"generated_flow_tests_{int(time.time())}.csv",
+                            mime="text/csv",
+                            width="stretch",
+                            key="btn_dl_flow_succ_top_csv",
+                            help="Download newly generated test suite as CSV",
+                        )
 
             if "flow_screens_expanded" not in st.session_state:
                 st.session_state["flow_screens_expanded"] = False
 
-            # Header with Collapse/Expand Controls
-            c_hdr1, c_hdr2, c_hdr3, c_hdr4 = st.columns([2.5, 0.9, 0.9, 1.2])
+            # Header with Collapse/Expand Controls, Layout, Export & Import
+            flow_json_export = json.dumps(discovered, indent=2)
+            c_hdr1, c_hdr2, c_hdr3, c_hdr4, c_hdr5, c_hdr6 = st.columns([2.3, 0.7, 0.7, 0.9, 0.8, 0.8], vertical_alignment="center")
             with c_hdr1:
                 st.subheader(f"🗺️ Discovered Flow Map ({len(screens_list)} Screens, {total_sub_modals} Sub-Modals/KPIs)")
             with c_hdr2:
-                if st.button("🔽 Expand All", width='stretch', help="Expand all screen cards and screenshots"):
+                if st.button("🔽 Expand", width='stretch', help="Expand all screen cards and screenshots"):
                     st.session_state["flow_screens_expanded"] = True
                     st.rerun()
             with c_hdr3:
-                if st.button("🔼 Collapse All", width='stretch', help="Collapse all screen cards to compact view"):
+                if st.button("🔼 Collapse", width='stretch', help="Collapse all screen cards to compact view"):
                     st.session_state["flow_screens_expanded"] = False
                     st.rerun()
             with c_hdr4:
@@ -2463,6 +3538,115 @@ with tab2:
                     key="flow_gallery_layout_mode",
                     label_visibility="collapsed"
                 )
+            with c_hdr5:
+                st.download_button(
+                    "💾 Export",
+                    data=flow_json_export.encode("utf-8"),
+                    file_name=f"app_flow_map_{int(time.time())}.json",
+                    mime="application/json",
+                    width='stretch',
+                    key="btn_export_flow_map_json",
+                    help="Export discovered screens and flows as JSON"
+                )
+            with c_hdr6:
+                with st.popover("📂 Import", width='stretch', help="Load a previously exported flow map JSON"):
+                    st.markdown("###### 📂 Load Flow Map JSON")
+                    up_flow_pop = st.file_uploader("Upload flow map file", type=["json"], key="flow_uploader_pop")
+                    if up_flow_pop is not None:
+                        try:
+                            data_pop = json.load(up_flow_pop)
+                            if isinstance(data_pop, dict) and "screens" in data_pop:
+                                st.session_state.discovered_flow = data_pop
+                                st.session_state.pop("flow_labels_sig", None)
+                                st.toast(f"✅ Loaded {len(data_pop['screens'])} screens from JSON!", icon="📂")
+                                st.rerun()
+                            else:
+                                st.error("Invalid flow map JSON format (missing 'screens' array).")
+                        except Exception as e_p:
+                            st.error(f"Error parsing JSON: {e_p}")
+
+            # Executive Flow Metrics Strip
+            tot_scr = len(screens_list)
+            tot_sub = total_sub_modals
+            tot_btns = sum(len(s.get("action_buttons", [])) for s in screens_list)
+            tot_inps = sum(len(s.get("inputs", [])) for s in screens_list)
+            tot_tbls = sum(s.get("tables_count", 0) for s in screens_list)
+            tot_kpis = sum(len(s.get("kpi_cards", [])) for s in screens_list)
+
+            stat_strip_html = f"""
+            <div class="flow-stat-strip">
+                <div class="flow-stat-pill">
+                    <div class="flow-stat-val">🖥️ {tot_scr}</div>
+                    <div class="flow-stat-lbl">Screens</div>
+                </div>
+                <div class="flow-stat-pill">
+                    <div class="flow-stat-val">🪟 {tot_sub}</div>
+                    <div class="flow-stat-lbl">Modals / Tabs</div>
+                </div>
+                <div class="flow-stat-pill">
+                    <div class="flow-stat-val">🔘 {tot_btns}</div>
+                    <div class="flow-stat-lbl">Buttons</div>
+                </div>
+                <div class="flow-stat-pill">
+                    <div class="flow-stat-val">📝 {tot_inps}</div>
+                    <div class="flow-stat-lbl">Inputs</div>
+                </div>
+                <div class="flow-stat-pill">
+                    <div class="flow-stat-val">📊 {tot_tbls + tot_kpis}</div>
+                    <div class="flow-stat-lbl">Tables & KPIs</div>
+                </div>
+            </div>
+            """
+            st.markdown(stat_strip_html, unsafe_allow_html=True)
+
+            # Visual Navigation Journey Architecture Canvas
+            with st.expander("🌐 Visual Navigation Flow Architecture (Journey Graph)", expanded=False):
+                journey_steps = []
+                for j_i, j_s in enumerate(screens_list):
+                    j_name = j_s.get("name", f"Screen #{j_i+1}")
+                    j_url = j_s.get("url", "")
+                    try:
+                        from urllib.parse import urlparse
+                        p_part = urlparse(j_url).path or "/"
+                    except Exception:
+                        p_part = j_url[:24]
+                    b_cnt = len(j_s.get("action_buttons", []))
+                    i_cnt = len(j_s.get("inputs", []))
+                    s_cnt = len(j_s.get("sub_features", []))
+                    t_cnt = j_s.get("tables_count", 0)
+                    
+                    r_badge = f'<span class="flow-node-badge flow-node-badge-sky">{j_s.get("role")}</span>' if j_s.get("role") else ('<span class="flow-node-badge flow-node-badge-green">Root</span>' if j_i == 0 else '<span class="flow-node-badge">Page</span>')
+                    badges_sub = []
+                    if b_cnt: badges_sub.append(f'<span class="flow-node-badge">🔘 {b_cnt}</span>')
+                    if i_cnt: badges_sub.append(f'<span class="flow-node-badge">📝 {i_cnt}</span>')
+                    if s_cnt: badges_sub.append(f'<span class="flow-node-badge flow-node-badge-amber">🪟 {s_cnt}</span>')
+                    if t_cnt: badges_sub.append(f'<span class="flow-node-badge flow-node-badge-green">📊 {t_cnt}</span>')
+
+                    step_card_html = f"""
+                    <div class="flow-journey-node" style="min-width: 190px; max-width: 260px; flex-direction: column; align-items: flex-start; gap: 3px;">
+                        <div style="display: flex; justify-content: space-between; width: 100%; align-items: center;">
+                            <strong style="color: #60A5FA; font-size: 0.84rem;">#{j_i+1} {j_name}</strong>
+                            {r_badge}
+                        </div>
+                        <div style="font-size: 0.72rem; color: #94A3B8; font-family: monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;">
+                            {p_part}
+                        </div>
+                        <div style="display: flex; flex-wrap: wrap; gap: 2px; margin-top: 3px;">
+                            {"".join(badges_sub)}
+                        </div>
+                    </div>
+                    """
+                    arr_html = '<div style="color: #818CF8; font-size: 1.15rem; font-weight: bold; padding: 0 4px;">➔</div>' if j_i < len(screens_list) - 1 else ''
+                    journey_steps.append(f'<div class="flow-journey-step">{step_card_html}{arr_html}</div>')
+
+                journey_full_html = f"""
+                <div class="flow-journey-container">
+                    <div style="display: flex; align-items: center; flex-wrap: nowrap; gap: 4px; overflow-x: auto; padding-bottom: 6px;">
+                        {"".join(journey_steps)}
+                    </div>
+                </div>
+                """
+                st.markdown(journey_full_html, unsafe_allow_html=True)
 
             is_globally_expanded = st.session_state["flow_screens_expanded"]
 
@@ -2489,7 +3673,7 @@ with tab2:
                     lbl for lbl in st.session_state["screen_multiselect_box"] if lbl in all_screen_labels
                 ]
 
-            c_sel1, c_sel2 = st.columns([3.8, 1.2])
+            c_sel1, c_sel2 = st.columns([3.8, 1.2], vertical_alignment="bottom")
             with c_sel1:
                 selected_labels = st.multiselect(
                     "🎯 Select Screens to Include in AI Test Generation:",
@@ -2499,7 +3683,6 @@ with tab2:
                 )
                 st.session_state.selected_flow_screens = list(selected_labels)
             with c_sel2:
-                st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
                 current_selected_screens = st.session_state.get("screen_multiselect_box", [])
                 all_screens_selected = (len(current_selected_screens) == len(all_screen_labels)) and len(all_screen_labels) > 0
                 if all_screens_selected:
@@ -2515,7 +3698,7 @@ with tab2:
 
             selected_indices = [screen_label_map[lbl] for lbl in selected_labels if lbl in screen_label_map]
 
-            c_strat1, c_strat2 = st.columns([2.8, 1.2])
+            c_strat1, c_strat2 = st.columns([2.8, 1.2], vertical_alignment="bottom")
             with c_strat1:
                 flow_strategy_opts = [
                     "🌐 Full 360° Suite (AI + Hybrid + Rule Engine)",
@@ -2538,6 +3721,8 @@ with tab2:
                 }.get(sel_flow_strat, "all")
                 st.caption(f"Active Synthesis Mode: `{flow_strat_code}`")
 
+            gallery_status_slot = st.empty()
+
             def _apply_generated_flow_suite(res_path: str, ss_p: str, msg_prefix: str):
                 try:
                     df_gen = pd.read_csv(res_path) if res_path and os.path.exists(res_path) and os.path.getsize(res_path) > 0 else pd.DataFrame()
@@ -2554,28 +3739,29 @@ with tab2:
                 st.session_state["flow_gen_success_msg"] = f"🎉 {msg_prefix} ({len(df_gen)} comprehensive test cases loaded into the Test Suite Grid below!)"
 
             def _run_single_scr_gen(scr_idx: int, s_name: str, strat: str, lbl: str):
-                prog_single = st.progress(0)
-                status_single = st.empty()
-                status_single.text(f"🚀 Generating [{lbl}] tests specifically for Screen #{scr_idx + 1}: '{s_name}'...")
-                from core.ai_client import AIClient
-                from core.test_generator import TestGenerator
-                try:
-                    gen = TestGenerator(AIClient())
-                    res_path, ss_p = gen.generate_cases_from_flow(
-                        flow_data=discovered,
-                        output_csv_path="generated_tests.csv",
-                        user_story=flow_user_story,
-                        selected_screen_indices=[scr_idx],
-                        append=False,
-                        on_progress_callback=lambda cur, tot, msg, cnt: status_single.text(f"[{cur}/{tot}] {msg}"),
-                        strategy=strat,
-                    )
-                    if res_path:
-                        prog_single.progress(1.0)
-                        _apply_generated_flow_suite(res_path, ss_p, f"Generated [{lbl}] test suite for Screen #{scr_idx + 1} ('{s_name}')")
-                        st.rerun()
-                except Exception as se:
-                    st.error(f"Error generating for screen: {se}")
+                with gallery_status_slot.container():
+                    prog_single = st.progress(0)
+                    status_single = st.empty()
+                    status_single.text(f"🚀 Generating [{lbl}] tests specifically for Screen #{scr_idx + 1}: '{s_name}'...")
+                    from core.ai_client import AIClient
+                    from core.test_generator import TestGenerator
+                    try:
+                        gen = TestGenerator(AIClient())
+                        res_path, ss_p = gen.generate_cases_from_flow(
+                            flow_data=discovered,
+                            output_csv_path="generated_tests.csv",
+                            user_story=flow_user_story,
+                            selected_screen_indices=[scr_idx],
+                            append=False,
+                            on_progress_callback=lambda cur, tot, msg, cnt: status_single.text(f"[{cur}/{tot}] {msg}"),
+                            strategy=strat,
+                        )
+                        if res_path:
+                            prog_single.progress(1.0)
+                            _apply_generated_flow_suite(res_path, ss_p, f"Generated [{lbl}] test suite for Screen #{scr_idx + 1} ('{s_name}')")
+                            st.rerun()
+                    except Exception as se:
+                        st.error(f"Error generating for screen: {se}")
 
             if view_layout == "📋 Collapsible Accordions":
                 # Render each screen in an individual collapsible accordion
@@ -2598,7 +3784,7 @@ with tab2:
                     is_sel_badge = " [🎯 Selected]" if idx in selected_indices else ""
                     expander_title = f"🖥️ Screen #{idx + 1}: {scr_name}{badge_str}{is_sel_badge}"
                     with st.expander(expander_title, expanded=is_globally_expanded):
-                        c_meta1, c_meta2, c_meta3 = st.columns([2.5, 1.2, 0.8])
+                        c_meta1, c_meta2, c_meta3 = st.columns([2.5, 1.2, 0.8], vertical_alignment="center")
                         with c_meta1:
                             st.caption(f"🔗 Target: `{scr_url}`")
                             if scr_role:
@@ -2612,6 +3798,8 @@ with tab2:
                                 st.markdown(f"###### ⚡ Generate for Screen #{idx + 1}:")
                                 if st.button("🌐 Full 360° Suite", key=f"gen_acc_all_{idx}", width='stretch', type="primary"):
                                     _run_single_scr_gen(idx, scr_name, "all", "🌐 Full 360° Suite")
+                                if st.button("⚡ RobustEngine v4", key=f"gen_acc_robust_{idx}", width='stretch'):
+                                    _run_single_scr_gen(idx, scr_name, "robust_v4", "⚡ RobustEngine v4")
                                 if st.button("🤖 AI Only", key=f"gen_acc_ai_{idx}", width='stretch'):
                                     _run_single_scr_gen(idx, scr_name, "ai_full", "🤖 AI Only")
                                 if st.button("🤖+⚙️ Hybrid", key=f"gen_acc_hyb_{idx}", width='stretch'):
@@ -2633,6 +3821,8 @@ with tab2:
                             if st.button(f"🗑️ Remove", key=f"del_scr_acc_{idx}", width='stretch', help=f"Remove Screen #{idx + 1} from flow"):
                                 screens_list.pop(idx)
                                 st.session_state.discovered_flow["screens"] = screens_list
+                                st.session_state.discovered_flow["total_screens"] = len(screens_list)
+                                st.session_state.pop("flow_labels_sig", None)
                                 st.rerun()
 
                         if ss_f and os.path.exists(ss_f):
@@ -2676,7 +3866,7 @@ with tab2:
                         actual_idx = row_start + col_i
                         with card_cols[col_i]:
                             with st.container(border=True):
-                                c_top1, c_top2 = st.columns([3, 1])
+                                c_top1, c_top2 = st.columns([3, 1], vertical_alignment="center")
                                 with c_top1:
                                     is_sel_star = " 🎯" if actual_idx in selected_indices else ""
                                     st.markdown(f"**Screen #{actual_idx + 1}: {scr.get('name', 'Page')}{is_sel_star}**")
@@ -2684,6 +3874,8 @@ with tab2:
                                     if st.button("🗑️", key=f"del_scr_grid_{actual_idx}", help=f"Remove Screen #{actual_idx + 1}"):
                                         screens_list.pop(actual_idx)
                                         st.session_state.discovered_flow["screens"] = screens_list
+                                        st.session_state.discovered_flow["total_screens"] = len(screens_list)
+                                        st.session_state.pop("flow_labels_sig", None)
                                         st.rerun()
 
                                 st.caption(f"🔗 `{scr.get('url', '')}`")
@@ -2703,6 +3895,8 @@ with tab2:
                                     st.markdown(f"###### ⚡ Generate for Screen #{actual_idx + 1}:")
                                     if st.button("🌐 Full 360° Suite", key=f"gen_grid_all_{actual_idx}", width='stretch', type="primary"):
                                         _run_single_scr_gen(actual_idx, scr.get('name', 'Page'), "all", "🌐 Full 360° Suite")
+                                    if st.button("⚡ RobustEngine v4", key=f"gen_grid_robust_{actual_idx}", width='stretch'):
+                                        _run_single_scr_gen(actual_idx, scr.get('name', 'Page'), "robust_v4", "⚡ RobustEngine v4")
                                     if st.button("🤖 AI Only", key=f"gen_grid_ai_{actual_idx}", width='stretch'):
                                         _run_single_scr_gen(actual_idx, scr.get('name', 'Page'), "ai_full", "🤖 AI Only")
                                     if st.button("🤖+⚙️ Hybrid", key=f"gen_grid_hyb_{actual_idx}", width='stretch'):
@@ -2787,10 +3981,13 @@ with tab2:
                 </div>""").strip(),
                 unsafe_allow_html=True,
             )
-            c_fgen_all, c_fgen_ai, c_fgen_hyb, c_fgen_rule = st.columns(4)
+            c_fgen_all, c_fgen_robust, c_fgen_ai, c_fgen_hyb, c_fgen_rule = st.columns(5, vertical_alignment="bottom")
             with c_fgen_all:
                 if st.button("🌐 All (360°)", type="primary", key="flow_gen_btn_all", width='stretch', help="Generate full 360° suite across AI + Hybrid + Rule Engine"):
                     _execute_flow_generation("all", "🌐 Full 360° Suite")
+            with c_fgen_robust:
+                if st.button("⚡ Robust v4", type="secondary", key="flow_gen_btn_robust", width='stretch', help="Generate 100% resilient 7-Category Deep Matrix suite with chained stateful journeys (0 tokens, 100% offline guaranteed)"):
+                    _execute_flow_generation("robust_v4", "⚡ RobustEngine v4")
             with c_fgen_ai:
                 if st.button("🤖 AI Full", key="flow_gen_btn_ai", width='stretch', help="Generate purely 🤖 AI Generated (Full) tests with LLM steps and Playwright scripts"):
                     _execute_flow_generation("ai_full", "🤖 AI Generated (Full)")
@@ -2811,8 +4008,9 @@ with tab2:
                     st.session_state["test_cases_df"] = df_flow
                 st.divider()
                 st.markdown("### 📋 Discovered Flow Test Cases & Origin Controls")
-                tot_c, ai_c, hyb_c, rl_c, mn_c = compute_origin_counts(df_flow)
+                tot_c, ai_c, hyb_c, rl_c, mn_c, rob_c = compute_origin_counts(df_flow, include_robust=True)
                 pills_flow = "".join([
+                    f'<span class="status-pill status-passed" style="text-transform: none; font-size: 0.78rem; padding: 3px 8px;" title="⚡ RobustEngine v4 Deep Matrix + Journeys">⚡ Robust: {rob_c}</span>',
                     f'<span class="status-pill status-passed" style="text-transform: none; font-size: 0.78rem; padding: 3px 8px;" title="Pure LLM synthesis with steps and Playwright scripts">🤖 AI Full: {ai_c}</span>',
                     f'<span class="status-pill status-running" style="text-transform: none; animation: none; font-size: 0.78rem; padding: 3px 8px;" title="AI steps with deterministic template Playwright scripts">🤖+⚙️ Hybrid: {hyb_c}</span>',
                     f'<span class="status-pill status-paused" style="text-transform: none; animation: none; font-size: 0.78rem; padding: 3px 8px;" title="Synthesized by Rule Engine from DOM/A11y/Network inspection (0 tokens, 100% offline)">⚙️ Rule Engine: {rl_c}</span>',
@@ -2824,59 +4022,19 @@ with tab2:
                 # A. 1-Click Run Selection Buttons
                 render_html_block('<div style="margin-top: 6px; margin-bottom: 6px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;"><div style="display: flex; align-items: center; gap: 6px;"><span style="font-size: 1rem;">⚡</span><strong style="color: #F8FAFC; font-size: 0.90rem;">1-Click Run Selection Buttons</strong><span style="color: #94A3B8; font-size: 0.82rem;">— Select which test cases are checked for execution with a single click:</span></div></div>')
 
-                c_b_ai, c_b_hyb, c_b_rule, c_b_man, c_b_all, c_b_none = st.columns([1.15, 1.25, 1.15, 1.15, 0.85, 0.85])
-                with c_b_ai:
-                    if st.button(f"🤖 AI ({ai_c})", key="flow_btn_run_sel_ai_only", width='stretch'):
-                        apply_origin_selection_to_suite(df_flow, "ai_only")
-                        st.toast(f"✅ Checked {ai_c} AI Generated tests for execution!", icon="🤖")
-                        st.rerun()
-                with c_b_hyb:
-                    if st.button(f"🤖+⚙️ Hybrid ({hyb_c})", key="flow_btn_run_sel_hybrid_only", width='stretch'):
-                        apply_origin_selection_to_suite(df_flow, "hybrid_only")
-                        st.toast(f"✅ Checked {hyb_c} Hybrid tests for execution!", icon="⚙️")
-                        st.rerun()
-                with c_b_rule:
-                    if st.button(f"⚙️ Rule ({rl_c})", key="flow_btn_run_sel_rule_only", width='stretch'):
-                        apply_origin_selection_to_suite(df_flow, "rule_only")
-                        st.toast(f"✅ Checked {rl_c} Rule Engine tests for execution!", icon="⚙️")
-                        st.rerun()
-                with c_b_man:
-                    if st.button(f"✍️ Manual ({mn_c})", key="flow_btn_run_sel_manual_only", width='stretch'):
-                        apply_origin_selection_to_suite(df_flow, "manual_only")
-                        st.toast(f"✅ Checked {mn_c} Manual tests for execution!", icon="✍️")
-                        st.rerun()
-                with c_b_all:
-                    if st.button("✅ All", key="flow_btn_run_sel_all", width='stretch'):
-                        apply_origin_selection_to_suite(df_flow, "all")
-                        st.toast(f"✅ Checked all {tot_c} tests for execution!", icon="✅")
-                        st.rerun()
-                with c_b_none:
-                    if st.button("❌ Clear", key="flow_btn_run_sel_none", width='stretch'):
-                        apply_origin_selection_to_suite(df_flow, "none")
-                        st.toast("❌ Cleared selection (all test cases unchecked).", icon="⏸️")
-                        st.rerun()
-
-                # B. Filter Table View by Origin Engine
-                st.markdown(
-                    """<div style="margin-top: 10px; margin-bottom: 6px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
-                        <div style="display: flex; align-items: center; gap: 6px;">
-                            <span style="font-size: 1rem;">🔍</span>
-                            <strong style="color: #F8FAFC; font-size: 0.90rem;">Filter Table View by Origin Engine</strong>
-                            <span style="color: #94A3B8; font-size: 0.82rem;">— A dropdown filter to focus the table view on a specific engine:</span>
-                        </div>
-                    </div>""",
-                    unsafe_allow_html=True,
-                )
-
                 flow_origin_filter_opts = [
                     f"🌐 All Engines ({tot_c})",
+                    f"⚡ RobustEngine v4 ({rob_c})",
                     f"🤖 AI Generated (Full) ({ai_c})",
                     f"🤖 AI Step + ⚙️ Template Code ({hyb_c})",
                     f"⚙️ Rule Engine ({rl_c})",
                     f"✍️ Manual / Uploaded ({mn_c})",
                 ]
 
-                c_ft1, c_ft2, c_ft3, c_ft4 = st.columns([2.2, 1.0, 1.0, 1.2])
+                flow_chk_cnt = int(df_flow["Run"].fillna(True).astype(bool).sum()) if "Run" in df_flow.columns else len(df_flow)
+                is_flow_all_sel = (flow_chk_cnt == len(df_flow)) and len(df_flow) > 0
+
+                c_ft1, c_ft_toggle, c_ft_sel, c_ft3, c_ft4 = st.columns([1.8, 1.2, 1.2, 1.0, 1.0], vertical_alignment="bottom")
                 with c_ft1:
                     sel_flow_orig_filter = st.selectbox(
                         "Filter Engine",
@@ -2885,43 +4043,54 @@ with tab2:
                         label_visibility="collapsed",
                         help="Filter table view to focus on a specific engine"
                     )
-                with c_ft2:
-                    if st.button("🔄 All", key="flow_btn_reset_all_and_run", width='stretch', help="One-click reset to restore the full view and select all test cases."):
-                        df_flow["Run"] = True
-                        st.session_state["test_cases_df"] = df_flow
-                        if "results_df" in st.session_state and st.session_state.results_df is not None:
-                            if len(st.session_state.results_df) == len(df_flow):
-                                st.session_state.results_df["Run"] = True
-                        st.session_state["flow_origin_filter_dropdown"] = flow_origin_filter_opts[0]
-                        st.session_state["grid_origin_filter_dropdown"] = flow_origin_filter_opts[0]
-                        st.session_state["grid_target_focus_select"] = "🌐 All Screens & Targets"
-                        st.session_state["grid_version"] = st.session_state.get("grid_version", 0) + 1
-                        st.toast(f"🔄 Restored full view and selected all {tot_c} test cases!", icon="✅")
+                with c_ft_toggle:
+                    toggle_flow_lbl = f"◻️ Deselect ({flow_chk_cnt})" if is_flow_all_sel else f"☑️ Select ({len(df_flow)})"
+                    if st.button(toggle_flow_lbl, key="flow_btn_smart_toggle_all", width='stretch', help="Toggle execution selection for all test cases"):
+                        apply_origin_selection_to_suite(df_flow, "none" if is_flow_all_sel else "all")
                         st.rerun()
+                with c_ft_sel:
+                    with st.popover("⚡ Select Engine", width='stretch', help="Check test cases by specific generation engine"):
+                        st.markdown("##### ⚡ Check Tests by Engine")
+                        if st.button(f"⚡ Robust Only ({rob_c})", key="flow_pop_btn_robust", width='stretch'):
+                            apply_origin_selection_to_suite(df_flow, "robust_only")
+                            st.rerun()
+                        if st.button(f"🤖 AI Only ({ai_c})", key="flow_pop_btn_ai", width='stretch'):
+                            apply_origin_selection_to_suite(df_flow, "ai_only")
+                            st.rerun()
+                        if st.button(f"🤖+⚙️ Hybrid ({hyb_c})", key="flow_pop_btn_hyb", width='stretch'):
+                            apply_origin_selection_to_suite(df_flow, "hybrid_only")
+                            st.rerun()
+                        if st.button(f"⚙️ Rule Only ({rl_c})", key="flow_pop_btn_rule", width='stretch'):
+                            apply_origin_selection_to_suite(df_flow, "rule_only")
+                            st.rerun()
+                        if st.button(f"✍️ Manual Only ({mn_c})", key="flow_pop_btn_man", width='stretch'):
+                            apply_origin_selection_to_suite(df_flow, "manual_only")
+                            st.rerun()
+                        st.divider()
+                        if st.button("🔄 Reset View & Select All", key="flow_pop_reset_full_view", width='stretch'):
+                            df_flow["Run"] = True
+                            st.session_state["test_cases_df"] = df_flow
+                            if "results_df" in st.session_state and st.session_state.results_df is not None:
+                                if len(st.session_state.results_df) == len(df_flow):
+                                    st.session_state.results_df["Run"] = True
+                            st.session_state["flow_origin_filter_dropdown"] = flow_origin_filter_opts[0]
+                            st.session_state["grid_origin_filter_dropdown"] = flow_origin_filter_opts[0]
+                            st.session_state["grid_target_focus_select"] = "🌐 All Screens & Targets"
+                            st.session_state["grid_version"] = st.session_state.get("grid_version", 0) + 1
+                            st.rerun()
                 with c_ft3:
-                    with st.popover("🗑️ Clear / Del", width='stretch', help="Delete selected test cases, clear selection, or wipe the suite"):
-                        st.markdown("##### 🗑️ Test Case Management")
+                    with st.popover("⚙️ Manage", width='stretch', help="Delete selected test cases, clear selection, export, or wipe the suite"):
+                        st.markdown("##### ⚙️ Test Suite Management")
                         st.caption("Remove selected rows, adjust run checkboxes, or wipe the test suite.")
                         flow_chk_cnt = int(df_flow["Run"].fillna(True).astype(bool).sum()) if "Run" in df_flow.columns else len(df_flow)
-                        if st.button(f"🗑️ Delete Selected ({flow_chk_cnt})", key="flow_pop_del_selected", width='stretch', type="secondary"):
-                            if delete_selected_test_cases(df_flow):
-                                st.toast(f"🗑️ Deleted {flow_chk_cnt} selected test cases!", icon="✅")
-                                st.rerun()
-                            else:
+                        del_btn_lbl = f"🗑️ Delete Selected ({flow_chk_cnt})" if flow_chk_cnt > 0 else "🗑️ Delete Selected"
+                        if st.button(del_btn_lbl, key="flow_pop_del_selected", width='stretch', type="secondary"):
+                            if flow_chk_cnt == 0:
                                 st.warning("⚠️ No test cases are currently checked with 'Run'.")
-
-                        st.markdown("###### Selection Controls:")
-                        c_fp1, c_fp2 = st.columns(2)
-                        with c_fp1:
-                            if st.button("🧹 Clear Select", key="flow_pop_clear_selection", width='stretch'):
-                                apply_origin_selection_to_suite(df_flow, "none")
-                                st.toast("🧹 Cleared selection (all test cases unchecked)!", icon="✅")
-                                st.rerun()
-                        with c_fp2:
-                            if st.button(f"✅ Select All ({tot_c})", key="flow_pop_select_all", width='stretch'):
-                                apply_origin_selection_to_suite(df_flow, "all")
-                                st.toast(f"✅ Selected all {tot_c} test cases!", icon="✅")
-                                st.rerun()
+                            else:
+                                if delete_selected_test_cases(df_flow):
+                                    st.toast(f"🗑️ Deleted {flow_chk_cnt} selected test cases!", icon="✅")
+                                    st.rerun()
 
                         st.divider()
                         if st.button("⚠️ Clear All Test Cases", key="flow_pop_clear_all", width='stretch', type="primary"):
@@ -2929,10 +4098,38 @@ with tab2:
                             st.toast("🧹 Test suite cleared successfully!", icon="✅")
                             st.rerun()
                 with c_ft4:
-                    st.caption(f"Showing **{tot_c}** tests in suite")
+                    with st.popover("📥 Export", width='stretch', help="Download active flow test suite as CSV or Excel"):
+                        flow_csv_bytes = df_flow.to_csv(index=False).encode("utf-8")
+                        st.download_button(
+                            "📄 Download CSV",
+                            data=flow_csv_bytes,
+                            file_name=f"generated_flow_tests_{int(time.time())}.csv",
+                            mime="text/csv",
+                            width='stretch',
+                            key="btn_download_flow_tests_csv",
+                            help="Download the entire generated flow test suite as a CSV file",
+                        )
+                        try:
+                            from io import BytesIO
+                            out_f_xl = BytesIO()
+                            with pd.ExcelWriter(out_f_xl, engine="openpyxl") as f_writer:
+                                df_flow.to_excel(f_writer, index=False, sheet_name="Flow Tests")
+                            st.download_button(
+                                "📊 Download Excel (.xlsx)",
+                                data=out_f_xl.getvalue(),
+                                file_name=f"generated_flow_tests_{int(time.time())}.xlsx",
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                width='stretch',
+                                key="pop_flow_dl_xlsx",
+                            )
+                        except Exception:
+                            pass
 
                 disp_flow_table = df_flow.copy()
-                if "AI Generated (Full)" in sel_flow_orig_filter or "AI Full" in sel_flow_orig_filter:
+                if "Robust" in sel_flow_orig_filter:
+                    orig_mask = disp_flow_table["Generated_By"].astype(str).str.contains("Robust", na=False)
+                    disp_flow_table = disp_flow_table[orig_mask]
+                elif "AI Generated (Full)" in sel_flow_orig_filter or "AI Full" in sel_flow_orig_filter:
                     orig_mask = (disp_flow_table["Generated_By"].astype(str).str.contains("AI Generated", na=False)) & (~disp_flow_table["Generated_By"].astype(str).str.contains("Template", na=False))
                     disp_flow_table = disp_flow_table[orig_mask]
                 elif "Template Code" in sel_flow_orig_filter or "Hybrid" in sel_flow_orig_filter:
@@ -2965,28 +4162,42 @@ with tab2:
                     hide_index=False,
                 )
 
-                if flow_edited_grid is not None and len(flow_edited_grid) > 0:
-                    flow_valid = (
-                        flow_edited_grid["Test_Step_Description"].fillna("").astype(str).str.strip().ne("")
-                        | flow_edited_grid["Target"].fillna("").astype(str).str.strip().ne("")
-                    )
-                    if flow_valid.any():
-                        flow_edited_grid = flow_edited_grid[flow_valid].copy()
-                    if len(disp_flow_table) < len(df_flow):
-                        df_flow.loc[flow_edited_grid.index] = flow_edited_grid
-                        clean_flow_m = sanitize_df_for_streamlit(df_flow).reset_index(drop=True)
-                        clean_flow_m.index = range(1, len(clean_flow_m) + 1)
-                        st.session_state["test_cases_df"] = clean_flow_m
-                        if "results_df" in st.session_state and st.session_state.results_df is not None:
-                            if len(st.session_state.results_df) == len(clean_flow_m):
-                                st.session_state.results_df["Run"] = clean_flow_m["Run"].values
+                if flow_edited_grid is not None:
+                    if len(flow_edited_grid) == 0:
+                        clear_entire_test_suite()
+                        st.toast("🧹 Test suite cleared!", icon="✅")
+                        st.rerun()
                     else:
-                        clean_flow_m = sanitize_df_for_streamlit(flow_edited_grid).reset_index(drop=True)
-                        clean_flow_m.index = range(1, len(clean_flow_m) + 1)
-                        st.session_state["test_cases_df"] = clean_flow_m
-                        if "results_df" in st.session_state and st.session_state.results_df is not None:
-                            if len(st.session_state.results_df) == len(clean_flow_m):
-                                st.session_state.results_df["Run"] = clean_flow_m["Run"].values
+                        flow_valid = (
+                            flow_edited_grid["Test_Step_Description"].fillna("").astype(str).str.strip().ne("")
+                            | flow_edited_grid["Target"].fillna("").astype(str).str.strip().ne("")
+                        )
+                        if flow_valid.any():
+                            flow_edited_grid = flow_edited_grid[flow_valid].copy()
+                        if len(disp_flow_table) < len(df_flow):
+                            df_flow.loc[flow_edited_grid.index] = flow_edited_grid
+                            clean_flow_m = sanitize_df_for_streamlit(df_flow).reset_index(drop=True)
+                            clean_flow_m.index = range(1, len(clean_flow_m) + 1)
+                            st.session_state["test_cases_df"] = clean_flow_m
+                            if "results_df" in st.session_state and st.session_state.results_df is not None:
+                                if len(st.session_state.results_df) == len(clean_flow_m):
+                                    st.session_state.results_df["Run"] = clean_flow_m["Run"].values
+                        else:
+                            clean_flow_m = sanitize_df_for_streamlit(flow_edited_grid).reset_index(drop=True)
+                            clean_flow_m.index = range(1, len(clean_flow_m) + 1)
+                            st.session_state["test_cases_df"] = clean_flow_m
+                            if "results_df" in st.session_state and st.session_state.results_df is not None:
+                                if len(st.session_state.results_df) == len(clean_flow_m):
+                                    st.session_state.results_df["Run"] = clean_flow_m["Run"].values
+                        
+                        # Sync row modifications/deletions to disk
+                        if len(flow_edited_grid) < len(disp_flow_table):
+                            for disk_f in ["generated_tests.csv", "deep_inspected_tests.csv"]:
+                                if os.path.exists(disk_f):
+                                    try:
+                                        clean_flow_m.to_csv(disk_f, index=False)
+                                    except Exception:
+                                        pass
 
     elif generation_type == "📸 UI Screenshot / Mockup":
         st.info(
@@ -3023,36 +4234,54 @@ with tab2:
                 elif not is_valid_m_url:
                     st.warning(f"⚠️ Validation Failed: {m_url_err}")
                 else:
-                    with st.spinner("AI Vision is inspecting the screenshot and generating test cases..."):
-                        from core.ai_client import AIClient
-                        from core.test_generator import TestGenerator
+                    vision_prog = st.progress(0.0, text="👁️ AI Vision: Preparing screenshot for visual inspection...")
 
+                    def _vision_progress_cb(pct: float, msg: str):
                         try:
-                            gen = TestGenerator(AIClient())
-                            res_path, ss_path = gen.generate_cases_from_image(
-                                image_bytes=uploaded_ui_img.getvalue(),
-                                target_url=mockup_target_url or "https://example.com",
-                                user_instructions=mockup_user_story,
-                                output_csv_path="generated_tests.csv",
-                            )
-                            if res_path and os.path.exists(res_path) and os.path.getsize(res_path) > 0:
-                                st.session_state.auto_generated_file = res_path
-                                st.session_state.last_analysis_ss = ss_path
-                                if "results_df" in st.session_state:
-                                    del st.session_state["results_df"]
-                                try:
-                                    test_count = len(pd.read_csv(res_path))
-                                except pd.errors.EmptyDataError:
-                                    test_count = 0
-                                st.success(f"✅ Successfully generated {test_count} test cases from the UI screenshot!")
-                            else:
-                                st.error("Failed to generate test cases from screenshot.")
-                        except Exception as ve:
-                            st.error(f"Vision Generation Error: {ve}")
+                            vision_prog.progress(min(1.0, max(0.0, pct)), text=f"👁️ AI Vision: {msg}")
+                        except Exception:
+                            pass
+
+                    from core.ai_client import AIClient
+                    from core.test_generator import TestGenerator
+
+                    try:
+                        gen = TestGenerator(AIClient())
+                        res_path, ss_path = gen.generate_cases_from_image(
+                            image_bytes=uploaded_ui_img.getvalue(),
+                            target_url=mockup_target_url or "https://example.com",
+                            user_instructions=mockup_user_story,
+                            output_csv_path="generated_tests.csv",
+                            on_progress_callback=_vision_progress_cb,
+                        )
+                        if res_path and os.path.exists(res_path) and os.path.getsize(res_path) > 0:
+                            vision_prog.progress(1.0, text="🎉 Successfully generated test cases from UI screenshot!")
+                            time.sleep(0.35)
+                            st.session_state.auto_generated_file = res_path
+                            st.session_state.last_analysis_ss = ss_path
+                            if "results_df" in st.session_state:
+                                del st.session_state["results_df"]
+                            try:
+                                df_mockup = pd.read_csv(res_path)
+                                test_count = len(df_mockup)
+                            except pd.errors.EmptyDataError:
+                                df_mockup = pd.DataFrame(columns=["Run", "Type", "Target", "Test_Step_Description", "Expected_Result", "Status", "Duration", "Actual_Result", "Screenshot", "Execution_Notes", "Playwright_Code"])
+                                test_count = 0
+                            st.session_state["test_cases_df"] = normalize_test_dataframe(df_mockup, default_target=mockup_target_url or "https://example.com")
+                            st.session_state["grid_version"] = st.session_state.get("grid_version", 0) + 1
+                            st.session_state["mockup_gen_success_msg"] = f"✅ Successfully generated {test_count} test cases from the UI screenshot!"
+                            st.rerun()
+                        else:
+                            vision_prog.empty()
+                            st.error("Failed to generate test cases from screenshot.")
+                    except Exception as ve:
+                        vision_prog.empty()
+                        st.error(f"Vision Generation Error: {ve}")
         with col_m2:
             def _cb_clear_mockup():
                 st.session_state["mockup_target_url_input"] = ""
                 st.session_state["mockup_user_story_input"] = ""
+                st.session_state.pop("mockup_gen_success_msg", None)
 
             st.button(
                 "🧹 Clear Inputs",
@@ -3061,6 +4290,23 @@ with tab2:
                 width='stretch',
                 key="clear_mockup_inputs"
             )
+
+        if st.session_state.get("mockup_gen_success_msg"):
+            c_m_msg, c_m_dl = st.columns([3.2, 1.2])
+            with c_m_msg:
+                st.success(st.session_state["mockup_gen_success_msg"])
+            with c_m_dl:
+                df_m = st.session_state.get("test_cases_df")
+                if df_m is not None and isinstance(df_m, pd.DataFrame) and not df_m.empty:
+                    st.download_button(
+                        "📥 Download Suite (CSV)",
+                        data=df_m.to_csv(index=False).encode("utf-8"),
+                        file_name=f"screenshot_tests_{int(time.time())}.csv",
+                        mime="text/csv",
+                        width='stretch',
+                        key="btn_dl_mockup_tests_csv",
+                        help="Download generated test cases as CSV",
+                    )
 
     else:
         st.info(
@@ -3122,35 +4368,51 @@ with tab2:
                             swagger_spec = swagger_spec_input
 
                     if swagger_spec:
-                        with st.spinner("AI is parsing OpenAPI spec and generating API test cases..."):
-                            from core.ai_client import AIClient
-                            from core.test_generator import TestGenerator
+                        api_prog = st.progress(0.0, text="📜 OpenAPI Parser: Reading and validating API schema...")
 
+                        def _api_prog_cb(pct: float, msg: str):
                             try:
-                                gen = TestGenerator(AIClient())
-                                res_path = gen.generate_api_cases_from_spec(
-                                    spec_content=swagger_spec,
-                                    base_url=api_base_url,
-                                    output_csv_path="generated_tests.csv",
-                                    user_story=api_user_story,
-                                    # pyrefly: ignore [unexpected-keyword]
-                                    append=False,
-                                )
-                                if isinstance(res_path, tuple):
-                                    res_path = res_path[0]
-                                if res_path and os.path.exists(res_path) and os.path.getsize(res_path) > 0:
-                                    st.session_state.auto_generated_file = res_path
-                                    if "results_df" in st.session_state:
-                                        del st.session_state["results_df"]
-                                    try:
-                                        test_count = len(pd.read_csv(res_path))
-                                    except pd.errors.EmptyDataError:
-                                        test_count = 0
-                                    st.success(f"✅ Successfully generated {test_count} API test cases!")
-                                else:
-                                    st.error("Failed to generate API test cases.")
-                            except Exception as e:
-                                st.error(f"API Generation Error: {e}")
+                                api_prog.progress(min(1.0, max(0.0, pct)), text=f"📜 API Generator: {msg}")
+                            except Exception:
+                                pass
+
+                        from core.ai_client import AIClient
+                        from core.test_generator import TestGenerator
+
+                        try:
+                            gen = TestGenerator(AIClient())
+                            res_path = gen.generate_api_cases_from_spec(
+                                spec_content=swagger_spec,
+                                base_url=api_base_url,
+                                output_csv_path="generated_tests.csv",
+                                user_story=api_user_story,
+                                append=False,
+                                on_progress_callback=_api_prog_cb,
+                            )
+                            if isinstance(res_path, tuple):
+                                res_path = res_path[0]
+                            if res_path and os.path.exists(res_path) and os.path.getsize(res_path) > 0:
+                                api_prog.progress(1.0, text="🎉 Successfully generated API test cases!")
+                                time.sleep(0.35)
+                                st.session_state.auto_generated_file = res_path
+                                if "results_df" in st.session_state:
+                                    del st.session_state["results_df"]
+                                try:
+                                    df_api = pd.read_csv(res_path)
+                                    test_count = len(df_api)
+                                except pd.errors.EmptyDataError:
+                                    df_api = pd.DataFrame(columns=["Run", "Type", "Target", "Test_Step_Description", "Expected_Result", "Status", "Duration", "Actual_Result", "Screenshot", "Execution_Notes", "Playwright_Code"])
+                                    test_count = 0
+                                st.session_state["test_cases_df"] = normalize_test_dataframe(df_api, default_target=api_base_url or "https://api.example.com")
+                                st.session_state["grid_version"] = st.session_state.get("grid_version", 0) + 1
+                                st.session_state["api_gen_success_msg"] = f"✅ Successfully generated {test_count} API test cases!"
+                                st.rerun()
+                            else:
+                                api_prog.empty()
+                                st.error("Failed to generate API test cases.")
+                        except Exception as e:
+                            api_prog.empty()
+                            st.error(f"API Generation Error: {e}")
         with col_a2:
             def _cb_clear_api():
                 st.session_state["api_base_url_input"] = ""
@@ -3159,6 +4421,7 @@ with tab2:
                     st.session_state["swagger_url_input"] = ""
                 if "swagger_json_input" in st.session_state:
                     st.session_state["swagger_json_input"] = ""
+                st.session_state.pop("api_gen_success_msg", None)
 
             st.button(
                 "🧹 Clear Inputs",
@@ -3167,6 +4430,23 @@ with tab2:
                 width='stretch',
                 key="clear_api_inputs"
             )
+
+        if st.session_state.get("api_gen_success_msg"):
+            c_a_msg, c_a_dl = st.columns([3.2, 1.2])
+            with c_a_msg:
+                st.success(st.session_state["api_gen_success_msg"])
+            with c_a_dl:
+                df_a = st.session_state.get("test_cases_df")
+                if df_a is not None and isinstance(df_a, pd.DataFrame) and not df_a.empty:
+                    st.download_button(
+                        "📥 Download Suite (CSV)",
+                        data=df_a.to_csv(index=False).encode("utf-8"),
+                        file_name=f"swagger_api_tests_{int(time.time())}.csv",
+                        mime="text/csv",
+                        width='stretch',
+                        key="btn_dl_api_tests_csv",
+                        help="Download generated API test cases as CSV",
+                    )
 
 with tab3:
     st.info("✍️ Manually create custom test cases or initialize a fresh blank suite.")
@@ -3190,9 +4470,100 @@ with tab3:
             if not m_step.strip():
                 st.error("Please enter a Test Step Description before submitting.")
             else:
+                raw_input_text = m_step.strip()
+                # Auto-detect if user pasted a multi-line table or CSV into the step box
+                is_tabular = ("\n" in raw_input_text and ("," in raw_input_text or "\t" in raw_input_text)) or any(sig in raw_input_text.lower() for sig in ["test case id", "screen / function", "expected outcome", "test steps", "use case id"])
+                if is_tabular:
+                    from core.test_generator import parse_qa_test_sheet_to_dataframe
+                    p_df = parse_qa_test_sheet_to_dataframe(raw_input_text, default_target=m_target)
+                    if not p_df.empty:
+                        target_csv = "deep_inspected_tests.csv"
+                        curr_df = st.session_state.get("test_cases_df")
+                        if curr_df is not None and isinstance(curr_df, pd.DataFrame) and not curr_df.empty:
+                            merged = pd.concat([curr_df, p_df], ignore_index=True)
+                        else:
+                            merged = p_df
+                        merged.index = range(1, len(merged) + 1)
+                        merged.to_csv(target_csv, index=False)
+                        st.session_state["test_cases_df"] = merged
+                        st.session_state["auto_generated_file"] = target_csv
+                        st.session_state["suite_explicitly_cleared"] = False
+                        if "results_df" in st.session_state:
+                            del st.session_state["results_df"]
+                        st.session_state["grid_version"] = st.session_state.get("grid_version", 0) + 1
+                        st.toast(f"🎉 Converted and loaded {len(p_df)} test cases into suite!", icon="✅")
+                        st.rerun()
                 append_manual_test_case(m_type, m_target, m_step, m_exp, m_code)
                 st.toast("✅ Manual test case added to suite!", icon="✍️")
                 st.rerun()
+
+    with st.expander("📋 Bulk Paste & Convert Test Cases (CSV / Excel / Jira / TestRail QA Sheets)", expanded=True):
+        st.caption("Paste any raw test case text, CSV rows, or spreadsheet export. The converter automatically normalizes it into the runnable 11-column test suite structure and synthesizes clean Playwright execution code.")
+        c_bp_u1, c_bp_u2 = st.columns([3, 1])
+        with c_bp_u1:
+            bulk_target_url = st.text_input(
+                "Default Target Web URL for Pasted Tests",
+                value=st.session_state.get("single_url_input", ""),
+                placeholder="https://example.com/app or https://example.com/login",
+                key="tab3_bulk_target_url"
+            )
+        with c_bp_u2:
+            bulk_append_mode = st.checkbox("Append to existing suite", value=False, key="tab3_bulk_append_chk")
+        
+        bulk_pasted_csv = st.text_area(
+            "Paste Raw CSV / Tabular Text here",
+            height=200,
+            placeholder="Paste your raw CSV rows, Excel table copy, or QA test cases here...",
+            key="tab3_bulk_pasted_csv"
+        )
+        
+        c_bp_act1, c_bp_act2 = st.columns([1, 1.2])
+        with c_bp_act1:
+            btn_rule_convert = st.button("🔄 Fast Rule Convert", type="secondary", width="stretch", key="tab3_btn_convert_bulk")
+        with c_bp_act2:
+            btn_ai_convert = st.button("✨ AI Smart Re-Gen & Code Synthesis", type="primary", width="stretch", key="tab3_btn_ai_convert_bulk")
+
+        if btn_rule_convert or btn_ai_convert:
+            if not bulk_pasted_csv.strip():
+                st.warning("⚠️ Please paste test cases or CSV text before converting.")
+            else:
+                sp_msg = "🤖 AI Re-Gen synthesizing execution-ready suite..." if btn_ai_convert else "Parsing and converting test cases into runnable format..."
+                with st.spinner(sp_msg):
+                    if btn_ai_convert:
+                        import importlib
+                        import core.test_generator
+                        if not hasattr(core.test_generator.TestGenerator, "ai_regenerate_and_convert_suite"):
+                            importlib.reload(core.test_generator)
+                        from core.test_generator import TestGenerator
+                        from core.ai_client import AIClient
+                        ai_c = AIClient()
+                        gen = TestGenerator(ai_client=ai_c)
+                        converted_df = gen.ai_regenerate_and_convert_suite(bulk_pasted_csv, default_target=bulk_target_url)
+                    else:
+                        from core.test_generator import parse_qa_test_sheet_to_dataframe
+                        converted_df = parse_qa_test_sheet_to_dataframe(bulk_pasted_csv, default_target=bulk_target_url)
+
+                    if converted_df is not None and not converted_df.empty:
+                        converted_df = normalize_test_dataframe(converted_df, default_target=bulk_target_url)
+
+                    if converted_df is None or converted_df.empty:
+                        st.error("Could not detect any test cases in the pasted text. Please check the text format.")
+                    else:
+                        target_csv = "deep_inspected_tests.csv"
+                        if bulk_append_mode and "test_cases_df" in st.session_state and isinstance(st.session_state["test_cases_df"], pd.DataFrame) and not st.session_state["test_cases_df"].empty:
+                            final_suite = pd.concat([st.session_state["test_cases_df"], converted_df], ignore_index=True)
+                        else:
+                            final_suite = converted_df
+                        final_suite.index = range(1, len(final_suite) + 1)
+                        final_suite.to_csv(target_csv, index=False)
+                        st.session_state["test_cases_df"] = final_suite
+                        st.session_state["auto_generated_file"] = target_csv
+                        st.session_state["suite_explicitly_cleared"] = False
+                        if "results_df" in st.session_state:
+                            del st.session_state["results_df"]
+                        st.session_state["grid_version"] = st.session_state.get("grid_version", 0) + 1
+                        st.toast(f"🎉 Successfully converted {len(converted_df)} test cases into the active suite in standard format!", icon="✅")
+                        st.rerun()
 
     with st.expander("➕ Or Start Fresh with an Empty Blank Suite / Clear Suite"):
         st.caption("Clears existing loaded tests and opens an empty editable grid to build from scratch or wipes the suite.")
@@ -3299,16 +4670,28 @@ if not uploaded_file:
     st.session_state.pop("_active_uploaded_file_id", None)
 
 df = None
+UPLOAD_PARSER_SIGNATURE = "v5_multistory_qa_585"
+
 if uploaded_file:
-    upload_id = f"{uploaded_file.name}_{uploaded_file.size}"
+    upload_id = f"{uploaded_file.name}_{uploaded_file.size}_{UPLOAD_PARSER_SIGNATURE}"
     is_new_upload = st.session_state.get("_active_uploaded_file_id") != upload_id
     if is_new_upload:
         st.session_state["suite_explicitly_cleared"] = False
 
+    # Stale detection: if session has a stale or empty-column suite, force re-parse
+    is_stale_or_corrupt = False
+    if "test_cases_df" in st.session_state and isinstance(st.session_state.test_cases_df, pd.DataFrame):
+        existing_cached = st.session_state.test_cases_df
+        if len(existing_cached) > 20:
+            empty_step_ratio = existing_cached["Test_Step_Description"].astype(str).str.strip().isin(["", "nan", "None"]).mean() if "Test_Step_Description" in existing_cached.columns else 1.0
+            has_no_sheets = ("workbook_sheets" not in st.session_state or not st.session_state["workbook_sheets"])
+            if empty_step_ratio > 0.5 or has_no_sheets:
+                is_stale_or_corrupt = True
+
     if not st.session_state.get("suite_explicitly_cleared", False):
         try:
             st.session_state.blank_suite = False
-            if is_new_upload:
+            if is_new_upload or is_stale_or_corrupt:
                 st.session_state["_active_uploaded_file_id"] = upload_id
                 raw_df = _safe_read_uploaded_file(uploaded_file)
                 df = normalize_test_dataframe(raw_df, reset_execution_status=True)
@@ -3318,6 +4701,7 @@ if uploaded_file:
                 st.session_state.batch_paused = False
                 st.session_state.paused_at_index = None
                 st.session_state["suite_signature"] = upload_id
+                st.session_state["grid_version"] = st.session_state.get("grid_version", 0) + 1
                 st.toast(f"📥 Loaded {len(df)} test cases from '{uploaded_file.name}' — ready for execution!", icon="✅")
             else:
                 if "test_cases_df" in st.session_state and isinstance(st.session_state.test_cases_df, pd.DataFrame) and not st.session_state.test_cases_df.empty:
@@ -3327,10 +4711,13 @@ if uploaded_file:
                     df = normalize_test_dataframe(raw_df, reset_execution_status=False)
         except Exception as e:
             st.error(f"Error reading uploaded file: {e}")
+elif "test_cases_df" in st.session_state and isinstance(st.session_state.test_cases_df, pd.DataFrame) and not st.session_state.test_cases_df.empty:
+    df = st.session_state.test_cases_df.copy()
 elif "auto_generated_file" in st.session_state and os.path.exists(str(st.session_state.auto_generated_file)) and os.path.getsize(str(st.session_state.auto_generated_file)) > 0:
     try:
         st.session_state.blank_suite = False
         df = pd.read_csv(st.session_state.auto_generated_file)
+        st.session_state["test_cases_df"] = df.copy()
     except pd.errors.EmptyDataError:
         df = None
     except Exception as e:
@@ -3345,21 +4732,6 @@ elif st.session_state.get("blank_suite"):
         df = pd.DataFrame(
             columns=["Type", "Target", "Test_Step_Description", "Expected_Result"]
         )
-elif not st.session_state.get("suite_explicitly_cleared", False):
-    if "test_cases_df" in st.session_state and isinstance(st.session_state.test_cases_df, pd.DataFrame) and not st.session_state.test_cases_df.empty:
-        df = st.session_state.test_cases_df.copy()
-    elif os.path.exists("deep_inspected_tests.csv") and os.path.getsize("deep_inspected_tests.csv") > 0:
-        try:
-            st.session_state.auto_generated_file = "deep_inspected_tests.csv"
-            df = pd.read_csv("deep_inspected_tests.csv")
-        except Exception:
-            pass
-    elif os.path.exists("generated_tests.csv") and os.path.getsize("generated_tests.csv") > 0:
-        try:
-            st.session_state.auto_generated_file = "generated_tests.csv"
-            df = pd.read_csv("generated_tests.csv")
-        except Exception:
-            pass
 
 # ---------------------------------------------------------
 # Empty State Quick-Start Guide (When No Suite is Loaded)
@@ -3490,8 +4862,12 @@ if df is not None:
         existing = str(row.get("Generated_By", "")).strip()
         if existing and existing.lower() not in ["", "nan", "none", "-"]:
             return existing
-        if st.session_state.get("blank_suite"):
+        if st.session_state.get("blank_suite") or bool(st.session_state.get("_active_uploaded_file_id")):
+            code = str(row.get("Playwright_Code", "")).strip()
+            if code and len(code) > 10 and code != "nan":
+                return "✍️ Uploaded + ⚙️ Rule Code"
             return "✍️ Manual / Uploaded"
+
         step = str(row.get("Test_Step_Description", "")).strip()
         code = str(row.get("Playwright_Code", "")).strip()
         notes = str(row.get("Execution_Notes", "")).strip()
@@ -3507,18 +4883,30 @@ if df is not None:
             "Could not locate primary action button on the screen.",
         ]
         has_template_code = any(m in code for m in template_markers)
-        has_ai_step_pattern = bool(step and ("Step 1:" in step or "->" in step or "🤖" in notes))
+        has_ai_marker = "🤖" in notes or "ai_generated" in notes.lower()
 
-        if has_ai_step_pattern and not has_template_code and len(code) > 5 and code != "nan":
+        if has_ai_marker and not has_template_code and len(code) > 5 and code != "nan":
             return "🤖 AI Generated"
-        elif has_ai_step_pattern and (has_template_code or not code or code == "nan"):
+        elif has_ai_marker and has_template_code:
             return "🤖 AI Step + ⚙️ Template Code"
         elif has_template_code:
             return "⚙️ Rule Engine"
-        elif "auto_generated_file" in st.session_state and has_ai_step_pattern:
-            return "🤖 AI Generated"
+        elif "auto_generated_file" in st.session_state:
+            auto_f = str(st.session_state.auto_generated_file).lower()
+            if "deep_inspected" in auto_f or "ai" in auto_f:
+                return "🤖 AI Generated"
         return "✍️ Manual / Uploaded"
 
+    # 2. Only harmonize QA synonyms if any QA synonym columns actually exist
+    qa_keys = (
+        "Screen / Function", "Screen / function", "Screen/Function", "Heading (one of the 7)",
+        "Heading", "User Action on Dev Link", "Steps: who clicks what on the dev link",
+        "Expected Outcome", "Expected outcome", "Expected result: what they see",
+        "Preconditions (test account, data that must exist first)", "Preconditions"
+    )
+    if any(k in df.columns for k in qa_keys):
+        from core.test_generator import harmonize_qa_dataframe
+        df = harmonize_qa_dataframe(df)
     df["Generated_By"] = df.apply(_detect_row_generation_source, axis=1)
 
     # Apply 1-click engine/origin bulk run selection if triggered
@@ -3542,26 +4930,51 @@ if df is not None:
                 st.session_state.results_df["Run"] = df["Run"].values
         st.toast(f"✅ Checked {checked_count} tests matching '{orig_val}' for execution!", icon="⚡")
 
-    # Reorder columns so Generated_By appears right after Type for instant visibility
-    preferred_order = [
-        "Run",
-        "Type",
-        "Generated_By",
-        "Target",
-        "Test_Step_Description",
-        "Expected_Result",
-        "Status",
-        "Duration",
-        "Actual_Result",
-        "Screenshot",
-        "Execution_Notes",
-        "Playwright_Code",
-    ]
-    ordered_cols = [c for c in preferred_order if c in df.columns] + [c for c in df.columns if c not in preferred_order]
-    df = df[ordered_cols]
+    # Clean up spurious columns (empty unnamed columns, corrupted header fragments)
+    spurious_to_drop = []
+    for c in df.columns:
+        c_str = str(c).strip()
+        if re.match(r'^(?:unnamed:\s*\d+|column\s*\d+)$', c_str, re.IGNORECASE):
+            if df[c].dropna().astype(str).str.strip().ne('').sum() <= 1:
+                spurious_to_drop.append(c)
+        elif re.match(r'^(?:tc|uc|slm|us)-', c_str, re.IGNORECASE) or c_str.lower() in ["pass", "fail", "known ip", "rate limiting", "test pass %", "total test cases"]:
+            spurious_to_drop.append(c)
+        elif len(c_str) > 45:
+            spurious_to_drop.append(c)
+    if spurious_to_drop:
+        df = df.drop(columns=spurious_to_drop, errors="ignore")
+
+    # Decouple User Presentation Grid (100% original columns) from internal execution adapter (_target, _code)
+    adapter_cols = ["Playwright_Code", "Generated_By", "Screenshot", "Execution_Notes", "_code", "_target", "_step", "_expected", "_type"]
+    control_cols = ["Run"]
+    if "Sheet_Name" in df.columns and df["Sheet_Name"].nunique() > 1:
+        control_cols.append("Sheet_Name")
+    if "Status" in df.columns:
+        control_cols.append("Status")
+
+    # If df has original user columns, classify internal duplicate columns as adapter columns
+    standard_core_set = set(control_cols + adapter_cols + ["Duration", "Actual_Result", "Type", "Target", "Test_Step_Description", "Expected_Result"])
+    has_custom_user_cols = any(c not in standard_core_set for c in df.columns)
+    if has_custom_user_cols:
+        for std_adapter in ["Type", "Target", "Test_Step_Description", "Expected_Result"]:
+            if std_adapter in df.columns and std_adapter not in adapter_cols:
+                adapter_cols.append(std_adapter)
+
+    reserved_set = set(control_cols + adapter_cols + ["Duration", "Actual_Result"])
+    user_presentation_cols = [c for c in df.columns if c not in reserved_set]
+    if not user_presentation_cols:
+        for std_c in ["Type", "Target", "Test_Step_Description", "Expected_Result"]:
+            if std_c in df.columns and std_c not in user_presentation_cols:
+                user_presentation_cols.append(std_c)
+
+    result_cols = [c for c in ["Duration", "Actual_Result"] if c in df.columns]
+
+    full_ordered = [c for c in control_cols + user_presentation_cols + [c for c in adapter_cols if c in df.columns] + result_cols if c in df.columns]
+    full_ordered += [c for c in df.columns if c not in full_ordered]
+    df = df[full_ordered]
 
     # AI Generation Verification Summary Bar
-    _, ai_full_count, ai_hybrid_count, rule_count, manual_count = compute_origin_counts(df)
+    _, ai_full_count, ai_hybrid_count, rule_count, manual_count, robust_count = compute_origin_counts(df, include_robust=True)
 
     cur_plat_name = active_platform_config.get("platform", "desktop_chrome")
     cur_plat_label = PLATFORM_KEY_TO_LABEL.get(cur_plat_name, "Desktop Chrome")
@@ -3577,6 +4990,7 @@ if df is not None:
     if net_badge_str:
         pills_main.append(net_badge_str)
     pills_main.extend([
+        f'<span class="status-pill status-passed" style="text-transform: none; font-size: 0.78rem; padding: 3px 8px;" title="⚡ RobustEngine v4 7-Category Deep Matrix & Chained Journeys">⚡ Robust: {robust_count}</span>',
         f'<span class="status-pill status-passed" style="text-transform: none; font-size: 0.78rem; padding: 3px 8px;" title="Both test steps and Playwright code generated by AI LLM">🤖 AI Full: {ai_full_count}</span>',
         f'<span class="status-pill status-running" style="text-transform: none; animation: none; font-size: 0.78rem; padding: 3px 8px;" title="AI test steps with deterministic template Playwright scripts">🤖+⚙️ Hybrid: {ai_hybrid_count}</span>',
         f'<span class="status-pill status-paused" style="text-transform: none; animation: none; font-size: 0.78rem; padding: 3px 8px;" title="Synthesized by Rule Engine from DOM/A11y/Network inspection (0 tokens, 100% offline)">⚙️ Rule Engine: {rule_count}</span>',
@@ -3589,9 +5003,69 @@ if df is not None:
     if "grid_version" not in st.session_state:
         st.session_state["grid_version"] = 0
 
+    unique_sheets = [str(s).strip() for s in df["Sheet_Name"].dropna().unique().tolist() if str(s).strip() and str(s).strip().lower() not in ["none", "nan", "", "default"]] if "Sheet_Name" in df.columns else []
+
+    selected_sheets = []
+    selected_sheet = "🌐 All Sheets"
+    if len(unique_sheets) > 1:
+        sheet_counts = {sh: int((df["Sheet_Name"].astype(str).str.strip() == sh).sum()) for sh in unique_sheets}
+        all_count = len(df)
+        sheet_options = ["🌐 All Sheets"] + unique_sheets
+
+        def _cb_sheet_selector_updated():
+            st.session_state["grid_version"] = st.session_state.get("grid_version", 0) + 1
+
+        st.markdown("<div style='margin-top: 6px; margin-bottom: 2px;'><small style='color: #94A3B8; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;'>📑 Multi-Sheet Workbook Navigator:</small></div>", unsafe_allow_html=True)
+        c_nav_mode, c_nav_sel = st.columns([1.8, 3.8])
+        with c_nav_mode:
+            nav_mode = st.radio(
+                "Sheet Navigator Mode",
+                options=["📋 Dropdown", "📑 Multi-Select"],
+                horizontal=True,
+                key="grid_sheet_nav_mode_choice",
+                on_change=_cb_sheet_selector_updated,
+                label_visibility="collapsed"
+            )
+
+        with c_nav_sel:
+            if nav_mode == "📋 Dropdown":
+                chosen_sheet = st.selectbox(
+                    "Multi-Sheet Workbook Navigator",
+                    options=sheet_options,
+                    format_func=lambda s: f"🌐 All Sheets ({all_count})" if s == "🌐 All Sheets" else f"📑 {s} ({sheet_counts.get(s, 0)})",
+                    key="grid_sheet_single_select",
+                    on_change=_cb_sheet_selector_updated,
+                    label_visibility="collapsed",
+                    help="Select a specific workbook sheet or choose All Sheets"
+                )
+                if chosen_sheet != "🌐 All Sheets":
+                    selected_sheets = [chosen_sheet]
+                    selected_sheet = chosen_sheet
+                else:
+                    selected_sheet = "🌐 All Sheets"
+            else:
+                chosen_multi = st.multiselect(
+                    "Multi-Sheet Workbook Navigator",
+                    options=unique_sheets,
+                    format_func=lambda s: f"📑 {s} ({sheet_counts.get(s, 0)})",
+                    placeholder="Choose one or more sheets to view & run (leave empty for All Sheets)...",
+                    key="grid_sheet_multi_select",
+                    on_change=_cb_sheet_selector_updated,
+                    label_visibility="collapsed",
+                    help="Select multiple sheets to filter view and execute together"
+                )
+                selected_sheets = chosen_multi
+                if len(selected_sheets) == 1:
+                    selected_sheet = selected_sheets[0]
+                elif len(selected_sheets) > 1:
+                    selected_sheet = f"{len(selected_sheets)} Sheets Selected"
+                else:
+                    selected_sheet = "🌐 All Sheets"
+
     unique_targets = [t for t in df["Target"].dropna().unique().tolist() if str(t).strip() and str(t).strip().lower() != "none"]
     origin_filter_opts = [
         f"🌐 All Engines ({len(df)})",
+        f"⚡ RobustEngine v4 ({robust_count})",
         f"🤖 AI Generated (Full) ({ai_full_count})",
         f"🤖 AI Step + ⚙️ Template Code ({ai_hybrid_count})",
         f"⚙️ Rule Engine ({rule_count})",
@@ -3618,11 +5092,13 @@ if df is not None:
         st.session_state["grid_target_focus_select"] = "🌐 All Screens & Targets"
         st.session_state["grid_origin_filter_dropdown"] = origin_filter_opts[0]
         st.session_state["flow_origin_filter_dropdown"] = origin_filter_opts[0]
+        st.session_state["grid_sheet_single_select"] = "🌐 All Sheets"
+        st.session_state["grid_sheet_multi_select"] = []
         st.session_state["grid_version"] = st.session_state.get("grid_version", 0) + 1
         st.toast(f"🔄 Restored full view and selected all {len(df)} test cases!", icon="✅")
 
-    # Unified Single-Row De-congested Command Bar
-    c_tb_screen, c_tb_engine, c_tb_toggle, c_tb_focus, c_tb_url, c_tb_add, c_tb_manage = st.columns([1.7, 1.5, 1.3, 0.85, 0.85, 0.85, 0.95])
+    # Two-Tier Structured Command Bar: Tier 1 Filters & Scope, Tier 2 Actions & Export
+    c_tb_screen, c_tb_engine, c_tb_focus = st.columns([2.3, 2.0, 1.0], vertical_alignment="bottom")
     with c_tb_screen:
         target_focus_options = ["🌐 All Screens & Targets"] + unique_targets
         focused_target = st.selectbox(
@@ -3640,15 +5116,50 @@ if df is not None:
             label_visibility="collapsed",
             help="Filter test cases by synthesis engine / origin"
         )
-    with c_tb_toggle:
-        toggle_label = f"◻️ Deselect All ({sel_count})" if is_all_selected else f"☑️ Select All ({len(df)})"
-        toggle_help = "Deselect all test cases" if is_all_selected else "Select all test cases for execution"
-        st.button(toggle_label, on_click=_cb_smart_toggle_all_run, width='stretch', help=toggle_help, key="btn_command_bar_smart_toggle")
     with c_tb_focus:
         def _cb_select_focused_target():
-            st.session_state["run_focus_target"] = str(focused_target).strip()
+            if selected_sheets and focused_target == "🌐 All Screens & Targets" and "Sheet_Name" in df.columns:
+                norm_selected = {str(s).strip().lower() for s in selected_sheets}
+                sheet_mask = df["Sheet_Name"].astype(str).str.strip().str.lower().isin(norm_selected)
+                df["Run"] = sheet_mask
+                st.session_state["test_cases_df"] = df
+                if "results_df" in st.session_state and st.session_state.results_df is not None:
+                    if len(st.session_state.results_df) == len(df):
+                        st.session_state.results_df["Run"] = df["Run"].values
+                f_cnt = int(df["Run"].sum())
+                sheet_desc = f"Sheet '{selected_sheets[0]}'" if len(selected_sheets) == 1 else f"{len(selected_sheets)} Sheets"
+                st.toast(f"🎯 Checked only {f_cnt} tests in {sheet_desc} for execution!", icon="📑")
+            else:
+                st.session_state["run_focus_target"] = str(focused_target).strip()
             st.session_state["grid_version"] = st.session_state.get("grid_version", 0) + 1
-        st.button("🎯 Focus", on_click=_cb_select_focused_target, width='stretch', help=f"Check only tests belonging to '{focused_target}' and uncheck all others", key="btn_command_bar_focus_target")
+        
+        sheet_total_match = int(df["Sheet_Name"].astype(str).str.strip().str.lower().isin({str(s).strip().lower() for s in selected_sheets}).sum()) if selected_sheets and "Sheet_Name" in df.columns else 0
+        focus_btn_label = f"🎯 Sheet ({sheet_total_match})" if (selected_sheets and focused_target == "🌐 All Screens & Targets" and "Sheet_Name" in df.columns) else "🎯 Focus"
+        focus_btn_help = f"Check only tests belonging to selected sheet(s) and uncheck all others" if (selected_sheets and focused_target == "🌐 All Screens & Targets") else f"Check only tests belonging to '{focused_target}' and uncheck all others"
+        st.button(focus_btn_label, on_click=_cb_select_focused_target, width='stretch', help=focus_btn_help, key="btn_command_bar_focus_target")
+
+    c_tb_toggle, c_tb_add, c_tb_url, c_tb_export, c_tb_manage = st.columns([1.5, 1.1, 1.1, 1.1, 1.1], vertical_alignment="bottom")
+    with c_tb_toggle:
+        if selected_sheets and "Sheet_Name" in df.columns:
+            norm_selected = {str(s).strip().lower() for s in selected_sheets}
+            sheet_mask = df["Sheet_Name"].astype(str).str.strip().str.lower().isin(norm_selected)
+            sheet_sel_cnt = int(df.loc[sheet_mask, "Run"].fillna(True).astype(bool).sum())
+            sheet_total = int(sheet_mask.sum())
+            is_sheet_all_sel = (sheet_sel_cnt == sheet_total) and (sheet_total > 0)
+            def _cb_toggle_sheet_run():
+                df.loc[sheet_mask, "Run"] = not is_sheet_all_sel
+                st.session_state["test_cases_df"] = df
+                if "results_df" in st.session_state and st.session_state.results_df is not None:
+                    if len(st.session_state.results_df) == len(df):
+                        st.session_state.results_df["Run"] = df["Run"].values
+                st.session_state["grid_version"] = st.session_state.get("grid_version", 0) + 1
+            t_lbl = f"◻️ Deselect ({sheet_sel_cnt})" if is_sheet_all_sel else f"☑️ Select ({sheet_total})"
+            sheet_desc = selected_sheets[0] if len(selected_sheets) == 1 else f"{len(selected_sheets)} Sheets"
+            st.button(t_lbl, on_click=_cb_toggle_sheet_run, width='stretch', help=f"Toggle execution selection for {sheet_desc}", key="btn_command_bar_smart_toggle")
+        else:
+            toggle_label = f"◻️ Deselect All ({sel_count})" if is_all_selected else f"☑️ Select All ({len(df)})"
+            toggle_help = "Deselect all test cases" if is_all_selected else "Select all test cases for execution"
+            st.button(toggle_label, on_click=_cb_smart_toggle_all_run, width='stretch', help=toggle_help, key="btn_command_bar_smart_toggle")
     with c_tb_url:
         with st.popover("🌐 URL", width='stretch', help="Update or replace Target URL across multiple test cases"):
             st.markdown("##### 🌐 Bulk Update Target URL")
@@ -3709,8 +5220,44 @@ if df is not None:
                     append_manual_test_case(p_type, p_target, p_step, p_exp, p_code)
                     st.toast("✅ Manual test case added to active suite!", icon="✍️")
                     st.rerun()
+    with c_tb_export:
+        with st.popover("📥 Export", width='stretch', help="Download active test suite as CSV or Excel"):
+            st.markdown("##### 📥 Export Test Suite")
+            st.caption(f"Export all {len(df)} test cases currently in memory.")
+            exp_csv_bytes = df.to_csv(index=False).encode("utf-8")
+            st.download_button(
+                "📥 CSV (.csv)",
+                data=exp_csv_bytes,
+                file_name=f"test_suite_{int(time.time())}.csv",
+                mime="text/csv",
+                width="stretch",
+                key="grid_cmd_bar_dl_csv",
+                help="Download full test suite as CSV",
+            )
+            try:
+                from io import BytesIO
+                out_xl_buf = BytesIO()
+                with pd.ExcelWriter(out_xl_buf, engine="openpyxl") as xl_w:
+                    if "Sheet_Name" in df.columns and len(df["Sheet_Name"].dropna().unique()) > 1:
+                        used_sheet_names = set()
+                        for sheet_name_val, sheet_group in df.groupby("Sheet_Name"):
+                            sheet_tab_title = sanitize_excel_sheet_name(sheet_name_val, used_sheet_names)
+                            sheet_group.to_excel(xl_w, index=False, sheet_name=sheet_tab_title)
+                    else:
+                        df.to_excel(xl_w, index=False, sheet_name="Test Cases")
+                st.download_button(
+                    "📊 Excel (.xlsx)",
+                    data=out_xl_buf.getvalue(),
+                    file_name=f"test_suite_{int(time.time())}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    width="stretch",
+                    key="grid_cmd_bar_dl_xlsx",
+                    help="Download full test suite as multi-sheet Excel",
+                )
+            except Exception:
+                pass
     with c_tb_manage:
-        with st.popover("⚙️ Manage", width='stretch', help="Manage suite: delete selected, reset view, or wipe suite"):
+        with st.popover("⚙️ Manage", width='stretch', help="Manage suite: delete selected, reset view, export, or wipe suite"):
             st.markdown("##### ⚙️ Test Suite Management")
             chk_cnt = int(df["Run"].fillna(True).astype(bool).sum()) if "Run" in df.columns else len(df)
             if st.button(f"🗑️ Delete Selected ({chk_cnt})", type="secondary", width='stretch', key="pop_btn_del_selected"):
@@ -3721,6 +5268,18 @@ if df is not None:
                     st.warning("⚠️ No test cases are currently checked with 'Run'.")
             
             st.button("🔄 Reset View & Select All", on_click=_cb_reset_and_select_all_grid, width='stretch', help="Restore full view and select all test cases.", key="pop_btn_reset_full_view")
+
+            st.divider()
+            st.markdown("###### Export Suite:")
+            st.download_button(
+                "📥 Download Suite (CSV)",
+                data=df.to_csv(index=False).encode("utf-8"),
+                file_name=f"test_suite_{int(time.time())}.csv",
+                mime="text/csv",
+                width="stretch",
+                key="pop_manage_dl_csv",
+                help="Download entire test suite as CSV",
+            )
 
             st.divider()
             st.markdown("###### Wipe Entire Suite:")
@@ -3734,7 +5293,11 @@ if df is not None:
     active_filters = []
     active_subset_indices = None
 
-    if "AI Generated (Full)" in selected_orig_filter or "AI Full" in selected_orig_filter:
+    if "Robust" in selected_orig_filter:
+        orig_mask = df["Generated_By"].astype(str).str.contains("Robust", na=False)
+        display_df = display_df[orig_mask]
+        active_filters.append("Engine: ⚡ RobustEngine v4")
+    elif "AI Generated (Full)" in selected_orig_filter or "AI Full" in selected_orig_filter:
         orig_mask = (df["Generated_By"].astype(str).str.contains("AI Generated", na=False)) & (~df["Generated_By"].astype(str).str.contains("Template", na=False))
         display_df = display_df[orig_mask]
         active_filters.append("Engine: 🤖 AI Generated (Full)")
@@ -3756,6 +5319,13 @@ if df is not None:
         display_df = display_df[tgt_mask]
         active_filters.append(f"Screen: {focused_target}")
 
+    if selected_sheets and "Sheet_Name" in display_df.columns:
+        norm_selected = {str(s).strip().lower() for s in selected_sheets}
+        sheet_mask = display_df["Sheet_Name"].astype(str).str.strip().str.lower().isin(norm_selected)
+        display_df = display_df[sheet_mask]
+        sheet_desc = selected_sheets[0] if len(selected_sheets) == 1 else f"{len(selected_sheets)} Sheets"
+        active_filters.append(f"Sheet: {sheet_desc}")
+
     if active_filters and len(display_df) < len(df):
         active_subset_indices = display_df.index
         c_inf1, c_inf2 = st.columns([4, 1])
@@ -3764,42 +5334,141 @@ if df is not None:
         with c_inf2:
             st.button("🔄 All", on_click=_cb_reset_and_select_all_grid, width='stretch', help="One-click reset to restore the full view and select all test cases.", key="btn_filter_info_reset_all")
 
+    # Detect user columns that actually have non-empty data in the current sheet / filtered view
+    active_in_view_cols = [
+        c for c in user_presentation_cols
+        if c in display_df.columns and display_df[c].dropna().astype(str).str.strip().ne("").any()
+    ]
+    if not active_in_view_cols:
+        active_in_view_cols = [c for c in user_presentation_cols if c in display_df.columns]
+
+    sheet_view_sig = "_".join(sorted([re.sub(r'[^a-zA-Z0-9]', '', str(s)) for s in selected_sheets])) if selected_sheets else "all"
+
+    c_grid_hdr1, c_grid_hdr2, c_grid_hdr3 = st.columns([2.6, 1.3, 1.1])
+    with c_grid_hdr1:
+        st.caption(f"✨ **As-Is Presentation Active**: Showing **{len(active_in_view_cols)}** active columns for current sheet(s). Execution adapter operates in background.")
+    with c_grid_hdr2:
+        with st.popover("👁️ Columns to Display", width='stretch', help="Select which columns are visible in the grid"):
+            st.markdown("##### 👁️ Column Visibility")
+            st.caption("Toggle visible columns in table:")
+            col_sel_key = f"grid_visible_cols_sel_{sheet_view_sig}_{st.session_state.get('grid_version', 0)}"
+            chosen_user_cols = st.multiselect(
+                "Columns to display:",
+                options=user_presentation_cols,
+                default=active_in_view_cols,
+                key=col_sel_key,
+                label_visibility="collapsed"
+            )
+            if not chosen_user_cols:
+                chosen_user_cols = active_in_view_cols
+    with c_grid_hdr3:
+        # Global checked state for Adapter Cols (synchronized across grid and sidebar settings)
+        default_show_adapter = bool(st.session_state.get("global_show_adapter_cols", saved_config.get("show_adapter_cols", True)))
+        show_adapter = st.toggle(
+            "🛠️ Adapter Cols",
+            value=default_show_adapter,
+            key=f"grid_toggle_show_adapter_{sheet_view_sig}",
+            help="Toggle internal Playwright code and adapter columns in the grid view"
+        )
+        if show_adapter != st.session_state.get("global_show_adapter_cols"):
+            st.session_state["global_show_adapter_cols"] = show_adapter
+            st.session_state["_persisted_show_adapter"] = show_adapter
+            save_settings({"show_adapter_cols": show_adapter}, force=True)
+
+    adapter_to_show = [c for c in ["Type", "Target", "Playwright_Code", "Generated_By", "Execution_Notes"] if c in display_df.columns] if show_adapter else []
+    # Deduplicate in order to prevent duplicate columns in st.data_editor
+    seen_cols = set()
+    cols_to_render = []
+    for c in (control_cols + chosen_user_cols + adapter_to_show + result_cols):
+        if c in display_df.columns and c not in seen_cols:
+            seen_cols.add(c)
+            cols_to_render.append(c)
+
+    grid_render_df = display_df[cols_to_render]
+
+    grid_editor_key = f"test_data_grid_{st.session_state.get('grid_version', 0)}_{sheet_view_sig}"
+
     edited_df = st.data_editor(
-         sanitize_df_for_streamlit(display_df),
+        sanitize_df_for_streamlit(grid_render_df),
         num_rows="dynamic",
         width="stretch",
-        key=f"test_data_grid_{st.session_state['grid_version']}",
+        key=grid_editor_key,
         column_config={
             "Run": st.column_config.CheckboxColumn("▶️ Run?", default=True),
+            "Sheet_Name": st.column_config.TextColumn("📑 Sheet", help="Workbook sheet or module name"),
+            "Status": st.column_config.TextColumn("Status", disabled=True),
             "Type": st.column_config.SelectboxColumn("Type", options=["Web", "Mobile (Native)", "API"], default="Web"),
             "Generated_By": st.column_config.TextColumn("🤖 Generated By", disabled=True, help="Shows whether the test case and its Playwright code were generated by AI, Deterministic Rule Engine, or Manually"),
             "Target": st.column_config.TextColumn("Target URL", default=""),
-            "Status": st.column_config.TextColumn("Status", disabled=True),
             "Duration": st.column_config.TextColumn("⏱️ Duration", disabled=True),
             "Actual_Result": st.column_config.TextColumn("🔍 Actual Result", disabled=True),
             "Screenshot": st.column_config.TextColumn("📸 Screenshot", disabled=True),
         },
     )
-    if edited_df is not None and len(edited_df) > 0:
-        valid_mask = (
-            edited_df["Test_Step_Description"].fillna("").astype(str).str.strip().ne("")
-            | edited_df["Target"].fillna("").astype(str).str.strip().ne("")
-        )
-        if valid_mask.any():
-            edited_df = edited_df[valid_mask].copy()
-        edited_df = sanitize_df_for_streamlit(edited_df)
-        if active_subset_indices is not None and len(df) > len(edited_df):
-            # Synchronize edited subset back into master df
-            df.loc[edited_df.index] = edited_df
+    if edited_df is not None:
+        if len(edited_df) == 0:
+            clear_entire_test_suite()
+            st.toast("🧹 Test suite cleared!", icon="✅")
+            st.rerun()
+        else:
+            valid_mask = edited_df.astype(str).ne("").any(axis=1)
+            if valid_mask.any():
+                edited_df = edited_df[valid_mask].copy()
+            edited_df = sanitize_df_for_streamlit(edited_df)
+
+            for c in edited_df.columns:
+                if c in df.columns:
+                    df.loc[edited_df.index, c] = edited_df[c]
+
             master_clean = sanitize_df_for_streamlit(df).reset_index(drop=True)
             master_clean.index = range(1, len(master_clean) + 1)
             st.session_state["results_df"] = master_clean.copy()
             st.session_state["test_cases_df"] = master_clean.copy()
-        else:
-            edited_df = edited_df.reset_index(drop=True)
-            edited_df.index = range(1, len(edited_df) + 1)
-            st.session_state["results_df"] = edited_df.copy()
-            st.session_state["test_cases_df"] = edited_df.copy()
+
+            # Sync row deletions to disk
+            if len(edited_df) < len(grid_render_df):
+                for disk_f in ["generated_tests.csv", "deep_inspected_tests.csv"]:
+                    if os.path.exists(disk_f):
+                        try:
+                            st.session_state["test_cases_df"].to_csv(disk_f, index=False)
+                        except Exception:
+                            pass
+
+    # Playwright Execution Script Inspector & Live Editor
+    with st.expander("🔍 Inspect & Live-Edit Synthesized Playwright Execution Code", expanded=False):
+        c_insp1, c_insp2 = st.columns([1.2, 3])
+        with c_insp1:
+            insp_indices = list(display_df.index)
+            if insp_indices:
+                step_col_name = "Test_Step_Description"
+                for cand in ["Test Steps", "User Action on Dev Link", "Test_Step_Description", "_step"]:
+                    if cand in display_df.columns and display_df[cand].dropna().astype(str).str.strip().ne("").any():
+                        step_col_name = cand
+                        break
+                else:
+                    step_col_name = user_presentation_cols[0] if user_presentation_cols else display_df.columns[0]
+                insp_sel_idx = st.selectbox(
+                    "Select Test # to Inspect:",
+                    insp_indices,
+                    format_func=lambda x: f"Test #{x}: {str(display_df.loc[x, step_col_name] if step_col_name in display_df.columns else x)[:35]}",
+                    key="code_inspector_sel_idx"
+                )
+            else:
+                insp_sel_idx = None
+        with c_insp2:
+            if insp_sel_idx is not None and insp_sel_idx in df.index:
+                curr_pw_code = str(df.at[insp_sel_idx, "Playwright_Code"] or (df.at[insp_sel_idx, "_code"] if "_code" in df.columns else ""))
+                new_pw_code = st.text_area(
+                    "Synthesized Playwright Code (Editable in background adapter):",
+                    value=curr_pw_code,
+                    height=130,
+                    key=f"inspector_code_area_{insp_sel_idx}"
+                )
+                if new_pw_code != curr_pw_code:
+                    df.at[insp_sel_idx, "Playwright_Code"] = new_pw_code
+                    if "_code" in df.columns:
+                        df.at[insp_sel_idx, "_code"] = new_pw_code
+                    st.session_state["test_cases_df"] = df
 
     class DualOutput:
         def __init__(self, original_stdout):
@@ -3826,12 +5495,8 @@ if df is not None:
             return self.captured.getvalue()
 
     def execute_single_test(index, row, target_df, status_text_ui=None):
-        target_url = str(row.get("Target", "")).strip()
-        custom_script = str(row.get("Playwright_Code", "")).strip()
-        if custom_script == "nan":
-            custom_script = ""
+        target_url, step_desc, expected_result, custom_script, test_type = resolve_test_execution_params(index, row, master_df=df)
 
-        step_desc = str(row.get("Test_Step_Description", "Executing step...")).strip()
         if status_text_ui:
             status_text_ui.markdown(
                 f"**Running Test #{index}:** {step_desc}"
@@ -3842,7 +5507,10 @@ if df is not None:
         if target_url and target_url.lower() != "none":
             # 1. Classify and validate execution channel & platform readiness
             from runners.native_runner import classify_and_validate_test_channel, NativeRunner
-            channel, val_err = classify_and_validate_test_channel(row, platform_config=active_platform_config)
+            channel_row = dict(row)
+            channel_row["Type"] = test_type
+            channel_row["Target"] = target_url
+            channel, val_err = classify_and_validate_test_channel(channel_row, platform_config=active_platform_config)
             if val_err:
                 target_df.at[index, "Status"] = "FAILED"
                 target_df.at[index, "Duration"] = "0.0s"
@@ -3860,7 +5528,7 @@ if df is not None:
                     runner = NativeRunner(
                         target=target_url,
                         test_step=step_desc,
-                        expected_result=str(row.get("Expected_Result", "")),
+                        expected_result=expected_result,
                         custom_script=custom_script,
                     )
                     gen_code = runner.execute()
@@ -3875,7 +5543,7 @@ if df is not None:
                         url=target_url,
                         test_data=test_data_dict,
                         test_step=step_desc,
-                        expected_result=str(row.get("Expected_Result", "")),
+                        expected_result=expected_result,
                         custom_script=custom_script,
                     )
                     gen_code = runner.execute()
@@ -3890,7 +5558,7 @@ if df is not None:
                         visual=enable_visual,
                         test_data=test_data_dict,
                         test_step=step_desc,
-                        expected_result=str(row.get("Expected_Result", "")),
+                        expected_result=expected_result,
                         custom_script=custom_script,
                         platform_config=active_platform_config,
                     )
@@ -3901,21 +5569,39 @@ if df is not None:
                         target_df.at[index, "Screenshot"] = runner.last_screenshot
 
                 target_df.at[index, "Status"] = "PASSED"
-                exp_val = str(row.get("Expected_Result", "")).strip()
+                exp_val = str(expected_result).strip()
                 target_df.at[index, "Actual_Result"] = (
                     f"Passed: {exp_val}" if exp_val else f"Action verified on {channel.replace('_', ' ').title()} channel."
                 )
             except Exception as e:
                 print(f"Error during execution: {e}")
-                target_df.at[index, "Status"] = "FAILED"
-                err_clean = str(e).strip().splitlines()[-1] if str(e).strip() else "Execution failed"
-                target_df.at[index, "Actual_Result"] = f"Failed: {err_clean}"
+                e_str = str(e).strip()
+                err_clean = e_str.splitlines()[-1] if e_str else "Execution failed"
+                from core.self_healing import StepSkippedException
+                is_not_possible = (
+                    isinstance(e, StepSkippedException)
+                    or "[not applicable]" in e_str.lower()
+                    or "[not possible]" in e_str.lower()
+                    or "not found on active page" in e_str.lower()
+                    or "not found on active screen" in e_str.lower()
+                    or "self-healing exhausted" in e_str.lower()
+                    or ("timeout" in e_str.lower() and ("waiting for locator" in e_str.lower() or "waiting for selector" in e_str.lower() or "locator.click" in e_str.lower() or "locator.fill" in e_str.lower()))
+                    or "cannot be executed or healed" in e_str.lower()
+                )
+                if is_not_possible:
+                    target_df.at[index, "Status"] = "SKIPPED"
+                    clean_msg = err_clean.replace("[NOT APPLICABLE]", "").replace("[NOT POSSIBLE]", "").strip()
+                    target_df.at[index, "Actual_Result"] = f"Skipped (Not Possible / Action Unreachable): {clean_msg}"
+                    target_df.at[index, "Execution_Notes"] = f"⚠️ [Skipped - Not Possible] {clean_msg}"
+                else:
+                    target_df.at[index, "Status"] = "FAILED"
+                    target_df.at[index, "Actual_Result"] = f"Failed: {err_clean}"
                 if runner and getattr(runner, "last_screenshot", None):
                     target_df.at[index, "Screenshot"] = runner.last_screenshot
             finally:
                 sys.stdout = orig_stdout
-                if runner and getattr(runner, "full_script", None) and runner.full_script:
-                    target_df.at[index, "Playwright_Code"] = runner.full_script
+                if runner and getattr(runner, "generated_code", None) and runner.generated_code:
+                    target_df.at[index, "Playwright_Code"] = runner.generated_code
 
             duration_str = f"{round(time.time() - start_time, 2)}s"
             target_df.at[index, "Duration"] = duration_str
@@ -3944,52 +5630,79 @@ if df is not None:
         paused_idx = st.session_state.get("paused_at_index", None)
         sel_tests_count = int(edited_df["Run"].fillna(True).astype(bool).sum()) if "Run" in edited_df.columns else len(edited_df)
 
+        exec_trigger_placeholder = st.empty()
+
         if is_paused and paused_idx is not None:
-            render_html_block(
-                f'<div class="metric-card" style="border-left: 3px solid #F59E0B; padding: 8px 14px; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">'
-                f'<div style="display: flex; align-items: center; gap: 8px;"><span class="status-pill status-paused">⏸️ Execution Paused</span><span style="font-weight: 600; font-size: 0.88rem;">Paused before Test #{paused_idx}</span></div>'
-                f'<span style="font-size: 0.80rem; color: #94A3B8;">Browser session preserved • Click Resume to continue</span>'
-                f'</div>'
-            )
-            c_exec1, c_exec2, c_exec3 = st.columns([2.5, 1.2, 0.9])
-            with c_exec1:
-                resume_bulk = st.button(
-                    f"▶️ Resume from Test #{paused_idx}",
-                    type="primary",
-                    width='stretch',
-                    key="btn_exec_primary_resume"
+            with exec_trigger_placeholder.container():
+                render_html_block(
+                    f'<div class="metric-card" style="border-left: 3px solid #F59E0B; padding: 8px 14px; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">'
+                    f'<div style="display: flex; align-items: center; gap: 8px;"><span class="status-pill status-paused">⏸️ Execution Paused</span><span style="font-weight: 600; font-size: 0.88rem;">Paused before Test #{paused_idx}</span></div>'
+                    f'<span style="font-size: 0.80rem; color: #94A3B8;">Browser session preserved • Click Resume to continue</span>'
+                    f'</div>'
                 )
-            with c_exec2:
-                pause_after_step = st.toggle("⏸️ Step-Pause", value=True, key="toggle_step_pause_active", help="Automatically pauses after each subsequent test case")
-            with c_exec3:
-                if st.button("⏹️ Reset", type="secondary", width='stretch', key="btn_reset_pause", help="Cancel paused run and reset batch state"):
-                    st.session_state.batch_paused = False
-                    st.session_state.paused_at_index = None
-                    st.rerun()
-            run_bulk = False
+                c_exec1, c_exec2, c_exec3 = st.columns([2.5, 1.2, 0.9])
+                with c_exec1:
+                    resume_bulk = st.button(
+                        f"▶️ Resume from Test #{paused_idx}",
+                        type="primary",
+                        width='stretch',
+                        key="btn_exec_primary_resume"
+                    )
+                with c_exec2:
+                    pause_after_step = st.toggle(
+                        "⏸️ Step-Pause",
+                        value=bool(st.session_state.get("global_step_pause", False)),
+                        key="toggle_step_pause_active",
+                        help="Automatically pauses after each subsequent test case"
+                    )
+                    st.session_state["global_step_pause"] = pause_after_step
+                with c_exec3:
+                    if st.button("⏹️ Reset", type="secondary", width='stretch', key="btn_reset_pause", help="Cancel paused run and reset batch state"):
+                        st.session_state.batch_paused = False
+                        st.session_state.paused_at_index = None
+                        st.rerun()
+                run_bulk = False
         else:
-            c_exec1, c_exec2 = st.columns([3.2, 1.1])
-            with c_exec1:
-                btn_run_text = f"▶️ Run Selected Tests ({sel_tests_count} cases)" if sel_tests_count > 0 else "▶️ Run Tests (0 selected)"
-                run_bulk = st.button(btn_run_text, type="primary", width='stretch', key="btn_exec_primary_run", disabled=(sel_tests_count == 0))
-            with c_exec2:
-                pause_after_step = st.toggle("⏸️ Step-Pause", value=False, key="toggle_step_pause_idle", help="Automatically pauses after each test case so you can inspect UI state before resuming")
-            resume_bulk = False
+            with exec_trigger_placeholder.container():
+                c_exec1, c_exec2 = st.columns([3.2, 1.1])
+                with c_exec1:
+                    btn_run_text = f"▶️ Run Selected Tests ({sel_tests_count} cases)" if sel_tests_count > 0 else "▶️ Run Tests (0 selected)"
+                    run_bulk = st.button(btn_run_text, type="primary", width='stretch', key="btn_exec_primary_run", disabled=(sel_tests_count == 0))
+                with c_exec2:
+                    pause_after_step = st.toggle(
+                        "⏸️ Step-Pause",
+                        value=bool(st.session_state.get("global_step_pause", False)),
+                        key="toggle_step_pause_idle",
+                        help="Automatically pauses after each test case so you can inspect UI state before resuming"
+                    )
+                    st.session_state["global_step_pause"] = pause_after_step
+                resume_bulk = False
 
         if run_bulk or resume_bulk:
-            if resume_bulk and "results_df" in st.session_state and st.session_state.results_df is not None and len(st.session_state.results_df) == len(edited_df):
-                run_df = edited_df.copy()
-                for col in ["Status", "Duration", "Actual_Result", "Screenshot", "Execution_Notes", "Playwright_Code"]:
-                    if col in st.session_state.results_df.columns:
-                        run_df[col] = st.session_state.results_df[col].values
-            else:
-                run_df = edited_df.copy()
+            # Build run_df by starting from master df rows corresponding to the active view
+            run_indices = [i for i in edited_df.index if i in df.index]
+            run_df = df.loc[run_indices].copy()
+            # Copy over any interactive edits (like Run checkboxes or inline changes) from edited_df
+            for col in edited_df.columns:
+                run_df[col] = edited_df[col]
 
             # Validation: Ensure at least one test is checked for execution
-            selected_tests = run_df[run_df.get("Run", True) == True]
+            selected_tests = run_df[run_df["Run"].fillna(True).astype(bool) == True]
             if len(selected_tests) == 0:
                 st.warning("⚠️ No test cases selected! Please check the '▶️ Run?' box for at least one test case before starting.")
             else:
+                exec_trigger_placeholder.empty()
+                from core.execution_control import (
+                    ensure_control_server,
+                    read_and_clear_control_signal,
+                    render_live_control_bar_html,
+                )
+                read_and_clear_control_signal()  # Reset any previous pause/stop signal for fresh run
+                control_port = ensure_control_server()
+                total_tests = len(run_df)
+                import streamlit.components.v1 as components
+                components.html(render_live_control_bar_html(control_port, total_tests=total_tests, step_pause=pause_after_step), height=74)
+
                 progress_bar = st.progress(0)
                 status_text = st.empty()
                 total_tests = len(run_df)
@@ -4003,19 +5716,21 @@ if df is not None:
                 # Determine starting index for resume or fresh run
                 start_from_idx = paused_idx if (resume_bulk and paused_idx is not None) else 1
 
-                for idx, row in zip(run_df.index, run_df.to_dict("records")):
+                for idx in run_df.index:
+                    row = run_df.loc[idx].to_dict()
                     # If resuming, skip previously completed tests before start_from_idx
                     if resume_bulk and idx < start_from_idx:
                         continue
 
-                    if not row.get("Run", True):
+                    if not bool(row.get("Run", True)):
                         run_df.at[idx, "Status"] = "SKIPPED"
                         run_df.at[idx, "Duration"] = "-"
                         run_df.at[idx, "Actual_Result"] = "Manually deselected by user."
                         run_df.at[idx, "Execution_Notes"] = "Manually deselected by user."
                         continue
 
-                    target_url = str(row.get("Target", "")).strip()
+                    target_url, step_desc, exp_res, custom_script, test_type = resolve_test_execution_params(idx, row, master_df=df)
+
                     if not target_url or target_url.lower() == "none":
                         run_df.at[idx, "Status"] = "SKIPPED"
                         run_df.at[idx, "Duration"] = "-"
@@ -4023,9 +5738,22 @@ if df is not None:
                         run_df.at[idx, "Execution_Notes"] = "Target URL was empty or invalid."
                         continue
 
-                    # Classify channel and validate platform readiness
+                    # Store resolved values on run_df
+                    run_df.at[idx, "Target"] = target_url
+                    run_df.at[idx, "_target"] = target_url
+                    run_df.at[idx, "Test_Step_Description"] = step_desc
+                    run_df.at[idx, "_step"] = step_desc
+                    run_df.at[idx, "Expected_Result"] = exp_res
+                    run_df.at[idx, "_expected"] = exp_res
+                    run_df.at[idx, "Playwright_Code"] = custom_script
+                    run_df.at[idx, "_code"] = custom_script
+                    run_df.at[idx, "Type"] = test_type
+
+                    channel_row = dict(row)
+                    channel_row["Type"] = test_type
+                    channel_row["Target"] = target_url
                     channel, val_err = classify_and_validate_test_channel(
-                        row, platform_config=active_platform_config
+                        channel_row, platform_config=active_platform_config
                     )
                     if val_err:
                         run_df.at[idx, "Status"] = "FAILED"
@@ -4036,17 +5764,13 @@ if df is not None:
                         progress_bar.progress(min(1.0, completed_count_val / max(1, total_tests)))
                         continue
 
-                    custom_script = str(row.get("Playwright_Code", "")).strip()
-                    if custom_script == "nan":
-                        custom_script = ""
-
                     item = {
                         "index": idx,
                         "url": target_url,
-                        "test_step": str(row.get("Test_Step_Description", "")),
-                        "expected_result": str(row.get("Expected_Result", "")),
+                        "test_step": step_desc,
+                        "expected_result": exp_res,
                         "custom_script": custom_script,
-                        "row": row,
+                        "row": channel_row,
                     }
                     if channel == "native_mobile":
                         native_batch.append(item)
@@ -4058,6 +5782,7 @@ if df is not None:
                 completed_count = [len(run_df[run_df["Status"].isin(["PASSED", "FAILED", "SKIPPED"])])]
                 paused_triggered = [False]
                 paused_step_num = [None]
+                paused_signal_received = [None]
 
                 def on_batch_step_update(index, status, full_script, screenshot_path, notes, duration="-", actual_result=None):
                     run_df.at[index, "Status"] = status
@@ -4091,7 +5816,12 @@ if df is not None:
                     )
 
                 def check_batch_control():
+                    sig = read_and_clear_control_signal()
+                    if sig in ["PAUSE", "STOP"]:
+                        paused_signal_received[0] = sig
+                        return sig
                     if pause_after_step:
+                        paused_signal_received[0] = "PAUSE"
                         return "PAUSE"
                     return "RUN"
 
@@ -4180,60 +5910,99 @@ if df is not None:
                                 unsafe_allow_html=True
                             )
 
-                # Check if paused
-                if pause_after_step and completed_count[0] < total_tests:
+                # Check if paused or stopped
+                active_sig = paused_signal_received[0]
+                if not active_sig and pause_after_step and completed_count[0] < total_tests:
+                    active_sig = "PAUSE"
+
+                if active_sig == "PAUSE":
                     st.session_state.batch_paused = True
                     # Find next pending index
-                    pending_indices = [i for i in run_df.index if run_df.at[i, "Status"] == "PENDING" and run_df.at[i, "Run"] == True]
+                    pending_indices = [i for i in run_df.index if run_df.at[i, "Status"] == "PENDING" and bool(run_df.at[i, "Run"]) == True]
                     st.session_state.paused_at_index = pending_indices[0] if pending_indices else (start_from_idx + 1)
-                    st.session_state.results_df = run_df
+                    for col in ["Status", "Duration", "Actual_Result", "Screenshot", "Execution_Notes", "Playwright_Code", "_code", "Target", "_target"]:
+                        if col in run_df.columns:
+                            df.loc[run_df.index, col] = run_df[col]
+                    st.session_state.results_df = df.copy()
+                    st.session_state.test_cases_df = df.copy()
                     st.session_state["grid_version"] = st.session_state.get("grid_version", 0) + 1
-                    st.toast(f"⏸️ Batch Paused at Test #{st.session_state.paused_at_index}!", icon="⏸️")
+                    for disk_f in ["generated_tests.csv", "deep_inspected_tests.csv"]:
+                        if os.path.exists(disk_f):
+                            try:
+                                df.to_csv(disk_f, index=False)
+                            except Exception:
+                                pass
+                    st.toast(f"⏸️ Batch Paused before Test #{st.session_state.paused_at_index}!", icon="⏸️")
+                    st.rerun()
+                elif active_sig == "STOP":
+                    progress_bar.progress(1.0)
+                    st.session_state.batch_paused = False
+                    st.session_state.paused_at_index = None
+                    for col in ["Status", "Duration", "Actual_Result", "Screenshot", "Execution_Notes", "Playwright_Code", "_code", "Target", "_target"]:
+                        if col in run_df.columns:
+                            df.loc[run_df.index, col] = run_df[col]
+                    st.session_state.results_df = df.copy()
+                    st.session_state.test_cases_df = df.copy()
+                    st.session_state["grid_version"] = st.session_state.get("grid_version", 0) + 1
+                    for disk_f in ["generated_tests.csv", "deep_inspected_tests.csv"]:
+                        if os.path.exists(disk_f):
+                            try:
+                                df.to_csv(disk_f, index=False)
+                            except Exception:
+                                pass
+                    st.toast(f"🛑 Execution Stopped by User! Completed {completed_count[0]} of {total_tests} tests.", icon="🛑")
                     st.rerun()
                 else:
                     progress_bar.progress(1.0)
                     st.session_state.batch_paused = False
                     st.session_state.paused_at_index = None
-                    st.session_state.results_df = run_df
+                    for col in ["Status", "Duration", "Actual_Result", "Screenshot", "Execution_Notes", "Playwright_Code", "_code", "Target", "_target"]:
+                        if col in run_df.columns:
+                            df.loc[run_df.index, col] = run_df[col]
+                    st.session_state.results_df = df.copy()
+                    st.session_state.test_cases_df = df.copy()
                     st.session_state["grid_version"] = st.session_state.get("grid_version", 0) + 1
-                    if "auto_generated_file" in st.session_state and os.path.exists(str(st.session_state.auto_generated_file)):
-                        try:
-                            run_df.to_csv(st.session_state.auto_generated_file, index=False)
-                        except Exception:
-                            pass
+                    for disk_f in ["generated_tests.csv", "deep_inspected_tests.csv"]:
+                        if os.path.exists(disk_f):
+                            try:
+                                df.to_csv(disk_f, index=False)
+                            except Exception:
+                                pass
                     st.toast("⚡ Bulk Execution Complete!", icon="✅")
                     st.rerun()
-
-    active_exec_df = (
-        st.session_state.results_df
-        if ("results_df" in st.session_state and st.session_state.results_df is not None and len(st.session_state.results_df) == len(edited_df))
-        else edited_df
-    )
 
     with col_exec2:
         st.markdown("### 🎯 Individual Execution")
         st.caption("Select and execute any individual test case on demand.")
-        if len(active_exec_df) == 0:
-            st.info("No test cases loaded.")
+        if len(edited_df) == 0:
+            st.info("No test cases loaded in current view.")
         else:
             def format_test_item(idx_val):
-                row_i = active_exec_df.loc[idx_val]
+                row_i = df.loc[idx_val] if idx_val in df.index else edited_df.loc[idx_val]
                 t_type = row_i.get("Type", "Web")
                 t_status = row_i.get("Status", "PENDING")
                 status_icon = "🟢" if t_status == "PASSED" else ("❌" if t_status == "FAILED" else ("⏭️" if t_status == "SKIPPED" else "⚪"))
-                t_desc = str(row_i.get("Test_Step_Description", "")).strip()
+                t_desc = str(
+                    row_i.get("Test_Step_Description") or row_i.get("Test Steps") or 
+                    row_i.get("User Action on Dev Link") or row_i.get("Test Case Description") or f"Test #{idx_val}"
+                ).strip()
                 t_dur = str(row_i.get("Duration", "-"))
                 dur_text = f" ({t_dur})" if t_dur and t_dur != "-" else ""
-                return f"Test #{idx_val} | {status_icon} {t_type} | {t_desc}{dur_text}"
+                return f"Test #{idx_val} | {status_icon} {t_type} | {t_desc[:45]}{dur_text}"
+
+            valid_indices = list(edited_df.index)
+            if "single_test_selector" in st.session_state and st.session_state["single_test_selector"] not in valid_indices:
+                st.session_state["single_test_selector"] = valid_indices[0] if valid_indices else None
 
             selected_test_idx = st.selectbox(
                 "Select Test Case to Execute",
-                options=list(active_exec_df.index),
+                options=valid_indices,
                 format_func=format_test_item,
                 key="single_test_selector",
             )
 
-            sel_row = active_exec_df.loc[selected_test_idx]
+            sel_row = df.loc[selected_test_idx] if selected_test_idx in df.index else edited_df.loc[selected_test_idx]
+            resolved_t_url, resolved_step, resolved_exp, resolved_script, resolved_type = resolve_test_execution_params(selected_test_idx, sel_row, master_df=df)
             sel_status = str(sel_row.get("Status", "PENDING")).strip()
             pill_class = "status-passed" if sel_status == "PASSED" else ("status-failed" if sel_status == "FAILED" else ("status-skipped" if sel_status == "SKIPPED" else "status-pending"))
 
@@ -4241,14 +6010,17 @@ if df is not None:
             with st.container(border=True):
                 c_head1, c_head2 = st.columns([3, 1])
                 with c_head1:
-                    st.markdown(f"**Test #{selected_test_idx} ({sel_row.get('Type', 'Web')})**")
+                    st.markdown(f"**Test #{selected_test_idx} ({resolved_type})**")
                 with c_head2:
                     st.markdown(
                         f"<div style='text-align: right;'><span class='status-pill {pill_class}'>{sel_status}</span></div>",
                         unsafe_allow_html=True,
                     )
                 from runners.native_runner import classify_and_validate_test_channel
-                ch_key, _ = classify_and_validate_test_channel(sel_row, platform_config=active_platform_config)
+                ch_row_dict = dict(sel_row)
+                ch_row_dict["Type"] = resolved_type
+                ch_row_dict["Target"] = resolved_t_url
+                ch_key, _ = classify_and_validate_test_channel(ch_row_dict, platform_config=active_platform_config)
                 ch_label = {
                     "native_mobile": "📱 Android Native Device (ADB)",
                     "cdp_mobile": "📶 Android Chrome/WebView (CDP)",
@@ -4257,10 +6029,9 @@ if df is not None:
                     "api": "⚡ REST / HTTP API",
                     "web": "🌐 Desktop Web Browser",
                 }.get(ch_key, "🌐 Desktop Web Browser")
-                st.markdown(f"**Target:** `{sel_row.get('Target', 'N/A')}` • **Channel:** `{ch_label}`")
-                st.markdown(f"**Step:** {sel_row.get('Test_Step_Description', 'N/A')}")
-                st.markdown(f"**Expected Result:** {sel_row.get('Expected_Result', 'N/A')}")
-
+                st.markdown(f"**Target:** `{resolved_t_url or 'N/A'}` • **Channel:** `{ch_label}`")
+                st.markdown(f"**Step:** {resolved_step}")
+                st.markdown(f"**Expected Result:** {resolved_exp}")
 
                 actual_val = str(sel_row.get("Actual_Result", "")).strip()
                 if not actual_val or actual_val == "-" or actual_val == "nan":
@@ -4273,24 +6044,28 @@ if df is not None:
             col_single_run, col_view_ss, col_del_case, col_create_bug = st.columns([1.2, 0.9, 0.9, 1.1])
             with col_single_run:
                 if st.button(f"▶️ Run Test #{selected_test_idx}", type="primary", width='stretch'):
-                    single_df = (
-                        st.session_state.results_df.copy()
-                        if ("results_df" in st.session_state and st.session_state.results_df is not None and len(st.session_state.results_df) == len(edited_df))
-                        else edited_df.copy()
-                    )
-                    with st.spinner(f"🚀 Executing Test #{selected_test_idx}..."):
-                        execute_single_test(selected_test_idx, sel_row, single_df)
-                        st.session_state.results_df = single_df
-                        st.session_state["grid_version"] = st.session_state.get("grid_version", 0) + 1
-                        if "auto_generated_file" in st.session_state and os.path.exists(str(st.session_state.auto_generated_file)):
+                    single_df = df.copy()
+                    prog_single = st.progress(0.0, text=f"🚀 Initializing runner for Test #{selected_test_idx}...")
+                    status_single = st.empty()
+                    prog_single.progress(0.20, text=f"🚀 Test #{selected_test_idx}: Preparing execution channel & context...")
+                    execute_single_test(selected_test_idx, sel_row, single_df, status_text_ui=status_single)
+                    prog_single.progress(1.0, text=f"🚀 Test #{selected_test_idx}: Execution complete!")
+                    time.sleep(0.3)
+                    st.session_state.results_df = single_df.copy()
+                    st.session_state.test_cases_df = single_df.copy()
+                    st.session_state["grid_version"] = st.session_state.get("grid_version", 0) + 1
+                    for disk_f in ["generated_tests.csv", "deep_inspected_tests.csv"]:
+                        if os.path.exists(disk_f):
                             try:
-                                single_df.to_csv(st.session_state.auto_generated_file, index=False)
+                                single_df.to_csv(disk_f, index=False)
                             except Exception:
                                 pass
                     res_status = single_df.at[selected_test_idx, "Status"]
                     res_dur = single_df.at[selected_test_idx, "Duration"]
                     if res_status == "PASSED":
                         st.toast(f"🟢 Test #{selected_test_idx} PASSED in {res_dur}!", icon="✅")
+                    elif res_status == "SKIPPED":
+                        st.toast(f"⏭️ Test #{selected_test_idx} SKIPPED (Not Applicable)!", icon="ℹ️")
                     else:
                         st.toast(f"❌ Test #{selected_test_idx} FAILED!", icon="⚠️")
                     st.rerun()
@@ -4305,29 +6080,53 @@ if df is not None:
 
             with col_del_case:
                 if st.button(f"🗑️ Delete #{selected_test_idx}", type="secondary", width='stretch', key=f"btn_del_single_test_{selected_test_idx}", help=f"Remove Test #{selected_test_idx} from active suite"):
-                    delete_single_test_case(active_exec_df, selected_test_idx)
+                    delete_single_test_case(df, selected_test_idx)
 
             with col_create_bug:
                 with st.popover("🐛 Create Bug", width='stretch'):
-                    st.markdown(f"**File ClickUp Bug for Test #{selected_test_idx}**")
+                    prio_color = "#EF4444" if sel_status == "FAILED" else "#10B981"
+                    st.markdown(
+                        f"""<div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid rgba(255, 255, 255, 0.08);">
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <span style="font-size: 1.2rem;">🐛</span>
+                                <div>
+                                    <strong style="color: #F8FAFC; font-size: 0.95rem;">File ClickUp Bug</strong>
+                                    <div style="color: #94A3B8; font-size: 0.78rem;">Test #{selected_test_idx} &bull; Status: <span style="color: {prio_color}; font-weight: 600;">{sel_status}</span></div>
+                                </div>
+                            </div>
+                            <span class="status-pill {'status-failed' if sel_status == 'FAILED' else 'status-passed'}" style="font-size: 0.72rem; padding: 2px 7px;">#{selected_test_idx}</span>
+                        </div>""",
+                        unsafe_allow_html=True,
+                    )
+
                     bug_prio_label = st.selectbox(
                         "Priority",
-                        options=["1 - Urgent", "2 - High", "3 - Normal", "4 - Low"],
+                        options=["🔴 1 - Urgent", "🟠 2 - High", "🟡 3 - Normal", "🔵 4 - Low"],
                         index=1 if sel_status == "FAILED" else 2,
                         key=f"prio_sel_{selected_test_idx}",
                     )
-                    prio_val = int(bug_prio_label.split(" - ")[0])
+                    prio_val = int(bug_prio_label.split(" - ")[0].split()[-1])
+
+                    step_title_clean = str(sel_row.get("Test_Step_Description", "")).strip().replace("\n", " ")
                     custom_task_name = st.text_input(
                         "Task Title",
-                        value=f"[BUG] Test #{selected_test_idx}: {str(sel_row.get('Test_Step_Description', ''))[:70]}",
+                        value=f"[BUG] Test #{selected_test_idx}: {step_title_clean[:85]}",
+                        placeholder="e.g. [BUG] Button not responsive on dashboard",
                         key=f"bug_title_{selected_test_idx}",
                     )
+
                     target_list_id_input = st.text_input(
                         "List ID",
                         value=clickup_list_id or "",
+                        placeholder="e.g. 90180234123 (from ClickUp list URL)",
                         key=f"cu_list_input_{selected_test_idx}",
-                        help="Target ClickUp List ID",
+                        help="Enter your target ClickUp List ID. Find it in your ClickUp list URL (e.g. app.clickup.com/123/v/l/li/90180234123).",
                     )
+
+                    if not clickup_token:
+                        st.caption("ℹ️ ClickUp API Token can be configured in the sidebar Settings for instant 1-click filing.")
+
+                    st.markdown("<div style='margin-top: 6px;'></div>", unsafe_allow_html=True)
                     if st.button("🚀 Push to ClickUp", key=f"btn_push_cu_{selected_test_idx}", type="primary", width='stretch'):
                         if not clickup_token:
                             st.error("Please configure ClickUp API Token in the sidebar first.")
@@ -4350,36 +6149,6 @@ if df is not None:
                                     st.toast(f"✅ Bug filed in ClickUp! Task #{res.get('task_id')}", icon="🐛")
                                 else:
                                     st.error(res.get("error"))
-
-            with st.expander("📋 Quick Action: Run Any Test by Number", expanded=False):
-                test_rows = list(zip(active_exec_df.index.tolist(), active_exec_df.to_dict("records")))
-                for chunk_start in range(0, len(test_rows), 4):
-                    chunk = test_rows[chunk_start : chunk_start + 4]
-                    grid_cols = st.columns(4)
-                    for col_idx, (idx, row) in enumerate(chunk):
-                        status_symbol = "🟢" if row.get("Status") == "PASSED" else ("❌" if row.get("Status") == "FAILED" else ("⏭️" if row.get("Status") == "SKIPPED" else "▶️"))
-                        with grid_cols[col_idx]:
-                            if st.button(
-                                f"{status_symbol} #{idx}",
-                                key=f"quick_run_{idx}",
-                                width='stretch',
-                                help=f"Test #{idx}: {str(row.get('Test_Step_Description', ''))}",
-                            ):
-                                single_df = (
-                                    st.session_state.results_df.copy()
-                                    if ("results_df" in st.session_state and st.session_state.results_df is not None and len(st.session_state.results_df) == len(edited_df))
-                                    else edited_df.copy()
-                                )
-                                with st.spinner(f"🚀 Executing Test #{idx}..."):
-                                    execute_single_test(idx, row, single_df)
-                                    st.session_state.results_df = single_df
-                                    st.session_state["grid_version"] = st.session_state.get("grid_version", 0) + 1
-                                    if "auto_generated_file" in st.session_state and os.path.exists(str(st.session_state.auto_generated_file)):
-                                        try:
-                                            single_df.to_csv(st.session_state.auto_generated_file, index=False)
-                                        except Exception:
-                                            pass
-                                st.rerun()
 
     # ---------------------------------------------------------
     # Execution Metrics & Results
@@ -4425,6 +6194,8 @@ if df is not None:
         else edited_df
     )
     if active_results is not None and len(active_results) > 0:
+        from core.test_generator import harmonize_qa_dataframe
+        active_results = harmonize_qa_dataframe(active_results)
         valid_res_mask = (
             active_results["Test_Step_Description"].fillna("").astype(str).str.strip().ne("")
             | active_results["Target"].fillna("").astype(str).str.strip().ne("")
@@ -4472,13 +6243,47 @@ if df is not None:
     st.markdown("<div style='margin-bottom: 12px;'></div>", unsafe_allow_html=True)
 
     # Filter Options
-    filter_choice = st.selectbox(
-        "Filter Results Table", ["All", "PASSED", "FAILED", "SKIPPED", "PENDING"]
-    )
-    if filter_choice != "All":
-        display_subset = active_results[active_results["Status"] == filter_choice]
+    has_multi_sheets = "Sheet_Name" in active_results.columns and active_results["Sheet_Name"].dropna().nunique() > 1
+    if has_multi_sheets:
+        c_res_sh, c_res_st = st.columns([1, 1])
+        with c_res_sh:
+            unique_res_sheets = ["🌐 All Sheets"] + [str(s).strip() for s in active_results["Sheet_Name"].dropna().unique().tolist() if str(s).strip() and str(s).strip().lower() not in ["none", "nan", ""]]
+            selected_res_sheet = st.selectbox("Filter by Sheet / Module", unique_res_sheets, key="results_sheet_filter_select")
+        with c_res_st:
+            filter_choice = st.selectbox(
+                "Filter Results by Status", ["All", "PASSED", "FAILED", "SKIPPED", "PENDING"], key="results_status_filter_select"
+            )
     else:
-        display_subset = active_results
+        selected_res_sheet = "🌐 All Sheets"
+        filter_choice = st.selectbox(
+            "Filter Results Table", ["All", "PASSED", "FAILED", "SKIPPED", "PENDING"]
+        )
+
+    display_subset = active_results
+    if selected_res_sheet != "🌐 All Sheets" and "Sheet_Name" in display_subset.columns:
+        display_subset = display_subset[display_subset["Sheet_Name"].astype(str).str.strip() == selected_res_sheet.strip()]
+    if filter_choice != "All":
+        display_subset = display_subset[display_subset["Status"] == filter_choice]
+
+    from core.test_generator import harmonize_qa_dataframe
+    display_subset = harmonize_qa_dataframe(display_subset)
+
+    # Filter out adapter internals and spurious empty columns
+    cols_to_hide = {"_target", "_step", "_expected", "_code", "_type", "Playwright_Code"}
+    clean_cols = [c for c in display_subset.columns if c not in cols_to_hide and not re.match(r'^(?:unnamed:\s*\d+|column\s*\d+)$', str(c).strip(), re.I)]
+
+    # Prioritize user-facing QA columns so steps, expected outcome, and screen always render first
+    priority_order = [
+        "Run", "Sheet_Name", "Status",
+        "Screen / Function", "Module",
+        "User Action on Dev Link", "Test Steps", "Test_Step_Description",
+        "Expected Outcome", "Expected Result", "Expected_Result",
+        "Actual_Result", "Duration", "Type", "Target",
+        "Test Case ID", "Use Case ID", "Priority", "Classification", "Date", "Comments", "Execution_Notes"
+    ]
+    ordered_cols = [c for c in priority_order if c in clean_cols]
+    remaining_cols = [c for c in clean_cols if c not in ordered_cols]
+    display_subset = display_subset[ordered_cols + remaining_cols]
 
     def color_status(val):
         if val == "PASSED":
@@ -4489,15 +6294,21 @@ if df is not None:
             return "color: #ffc107; font-weight: bold"
         return "color: #6c757d"
 
-    styled_table = display_subset.style.map(color_status, subset=["Status"])
+    styled_table = display_subset.style.map(color_status, subset=["Status"]) if "Status" in display_subset.columns else display_subset
     st.dataframe(styled_table, width="stretch")
 
     # Export & Action Toolbar
-    col_exp1, col_exp2, col_exp3, col_exp4, col_exp5 = st.columns([1, 1, 1.2, 1.2, 1])
+    col_exp1, col_exp2, col_exp3, col_exp4 = st.columns([1.2, 1.2, 1.4, 1.4])
     with col_exp1:
         output_excel = BytesIO()
         with pd.ExcelWriter(output_excel, engine="openpyxl") as writer:
-            active_results.to_excel(writer, index=False, sheet_name="Test Results")
+            if "Sheet_Name" in active_results.columns and active_results["Sheet_Name"].dropna().nunique() > 1:
+                used_sheet_names = set()
+                for sheet_n, sheet_grp in active_results.groupby("Sheet_Name"):
+                    clean_sheet_name = sanitize_excel_sheet_name(sheet_n, used_sheet_names)
+                    sheet_grp.to_excel(writer, index=False, sheet_name=clean_sheet_name)
+            else:
+                active_results.to_excel(writer, index=False, sheet_name="Test Results")
         st.download_button(
             label="📥 Excel (.xlsx)",
             data=output_excel.getvalue(),
@@ -4538,41 +6349,31 @@ if df is not None:
                 failed_tests = active_results[active_results["Status"] == "FAILED"]
                 created_count = 0
                 err_count = 0
-                with st.spinner(f"Filing {len(failed_tests)} bugs into ClickUp..."):
-                    for idx_num, f_row in zip(failed_tests.index, failed_tests.to_dict("records")):
-                        res = clickup_client.create_bug_task(
-                            test_row=f_row,
-                            test_index=idx_num,
-                            list_id=clickup_list_id,
-                            api_token=clickup_token,
-                            priority=2,
-                        )
-                        if res.get("success"):
-                            created_count += 1
-                        else:
-                            err_count += 1
+                total_failed = len(failed_tests)
+                prog_bug = st.progress(0.0, text=f"🐛 Filing {total_failed} bugs into ClickUp (0/{total_failed})...")
+                for c_i, (idx_num, f_row) in enumerate(zip(failed_tests.index, failed_tests.to_dict("records"))):
+                    pct = c_i / max(1, total_failed)
+                    prog_bug.progress(pct, text=f"🐛 Filing bug for Test #{idx_num} into ClickUp ({c_i + 1}/{total_failed})...")
+                    res = clickup_client.create_bug_task(
+                        test_row=f_row,
+                        test_index=idx_num,
+                        list_id=clickup_list_id,
+                        api_token=clickup_token,
+                        priority=2,
+                    )
+                    if res.get("success"):
+                        created_count += 1
+                    else:
+                        err_count += 1
+                prog_bug.progress(1.0, text=f"✅ Finished filing {created_count} bug task(s) into ClickUp!")
+                time.sleep(0.35)
                 if created_count > 0:
                     st.success(f"✅ Created {created_count} bug task(s) in ClickUp List `{clickup_list_id}`!")
                     st.toast(f"✅ {created_count} Bugs filed in ClickUp!", icon="🐛")
                 if err_count > 0:
                     st.warning(f"⚠️ {err_count} task(s) encountered errors.")
 
-    with col_exp5:
-        if st.button("🧹 Reset Results", type="secondary", width='stretch', help="Clear all execution statuses and metrics back to PENDING"):
-            if "results_df" in st.session_state and st.session_state.results_df is not None:
-                st.session_state.results_df["Status"] = "PENDING"
-                if "Duration" in st.session_state.results_df.columns:
-                    st.session_state.results_df["Duration"] = "-"
-                if "Notes" in st.session_state.results_df.columns:
-                    st.session_state.results_df["Notes"] = ""
-            if "test_cases" in st.session_state and st.session_state.test_cases is not None:
-                st.session_state.test_cases["Status"] = "PENDING"
-                if "Duration" in st.session_state.test_cases.columns:
-                    st.session_state.test_cases["Duration"] = "-"
-                if "Notes" in st.session_state.test_cases.columns:
-                    st.session_state.test_cases["Notes"] = ""
-            st.toast("🧹 Execution results cleared and reset to PENDING!", icon="✅")
-            st.rerun()
+
 
     # ---------------------------------------------------------
     # Visual Inspection & Screenshot Gallery
