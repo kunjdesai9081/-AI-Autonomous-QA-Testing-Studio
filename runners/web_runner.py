@@ -944,6 +944,9 @@ def _ensure_authenticated(page, target_url: str, test_data: dict, is_unauth_test
         return
 
     url_lower = (target_url or "").lower()
+    is_target_login = any(kw in url_lower for kw in ["/login", "/signin", "/sign-in", "/register", "/signup"])
+    if is_target_login:
+        return
 
     current_url_lower = (page.url or "").lower()
     has_password_field = False
@@ -1638,17 +1641,24 @@ class WebRunner:
                         """
 
                         code = ""
-                        try:
-                            pool = ThreadPoolExecutor(max_workers=1)
+                        has_ai = True
+                        if os.getenv("FORCE_G4F") == "true":
+                            from core.ai_client import _FREE_AI_FAIL_COUNT
+                            if _FREE_AI_FAIL_COUNT >= 2:
+                                has_ai = False
+
+                        if has_ai:
                             try:
-                                fut = pool.submit(self.ai_client.generate_response, prompt)
-                                raw_code = fut.result(timeout=18)
-                            finally:
-                                pool.shutdown(wait=False, cancel_futures=True)
-                            code = _sanitize_playwright_code(raw_code)
-                        except Exception as ai_err:
-                            print(f"[AI Autonomous Execution] AI generation notice ({ai_err}). Engaging smart Live-DOM synthesis...")
-                            code = ""
+                                pool = ThreadPoolExecutor(max_workers=1)
+                                try:
+                                    fut = pool.submit(self.ai_client.generate_response, prompt)
+                                    raw_code = fut.result(timeout=6)
+                                finally:
+                                    pool.shutdown(wait=False, cancel_futures=True)
+                                code = _sanitize_playwright_code(raw_code)
+                            except Exception as ai_err:
+                                print(f"[AI Autonomous Execution] AI generation notice ({ai_err}). Engaging smart Live-DOM synthesis...")
+                                code = ""
 
                         if not code or len(code.strip()) < 5 or _is_trivial_or_mismatched_script(code, self.test_step):
                             from core.test_generator import _synthesize_default_playwright_code
@@ -2031,9 +2041,9 @@ class WebBatchRunner:
                     exec_scope = self._build_execution_scope(page)
                     is_replay_hit = False
 
-                    # 1. Snippet custom script provided
-                    if custom_script and "sync_playwright" not in custom_script:
-                        clean_script = _sanitize_playwright_code(custom_script)
+                    # 1. Custom script provided (snippet or full script)
+                    clean_script = _sanitize_playwright_code(custom_script) if custom_script else ""
+                    if clean_script and len(clean_script.strip()) >= 5:
                         if _is_trivial_or_mismatched_script(clean_script, test_step):
                             from core.test_generator import _synthesize_default_playwright_code
                             clean_script = _synthesize_default_playwright_code(test_step, expected_result, url)
@@ -2090,17 +2100,24 @@ class WebBatchRunner:
                             """
 
                             code = ""
-                            try:
-                                pool = ThreadPoolExecutor(max_workers=1)
+                            has_ai = True
+                            if os.getenv("FORCE_G4F") == "true":
+                                from core.ai_client import _FREE_AI_FAIL_COUNT
+                                if _FREE_AI_FAIL_COUNT >= 2:
+                                    has_ai = False
+
+                            if has_ai:
                                 try:
-                                    fut = pool.submit(self.ai_client.generate_response, prompt)
-                                    raw_code = fut.result(timeout=18)
-                                finally:
-                                    pool.shutdown(wait=False, cancel_futures=True)
-                                code = _sanitize_playwright_code(raw_code)
-                            except Exception as ai_err:
-                                print(f"[WebBatchRunner] AI generation notice ({ai_err}). Engaging smart Live-DOM synthesis...")
-                                code = ""
+                                    pool = ThreadPoolExecutor(max_workers=1)
+                                    try:
+                                        fut = pool.submit(self.ai_client.generate_response, prompt)
+                                        raw_code = fut.result(timeout=6)
+                                    finally:
+                                        pool.shutdown(wait=False, cancel_futures=True)
+                                    code = _sanitize_playwright_code(raw_code)
+                                except Exception as ai_err:
+                                    print(f"[WebBatchRunner] AI generation note ({ai_err}). Engaging fast deterministic synthesis...")
+                                    code = ""
 
                             if not code or len(code.strip()) < 5 or _is_trivial_or_mismatched_script(code, test_step):
                                 from core.test_generator import _synthesize_default_playwright_code

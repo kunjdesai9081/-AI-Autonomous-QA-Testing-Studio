@@ -78,7 +78,16 @@ class SelfHealingEngine:
         # -------------------------------------------------------------
         # Tier 2: Live DOM & AI Diagnostic Healing
         # -------------------------------------------------------------
-        if self.ai_client:
+        can_run_ai = bool(self.ai_client)
+        if can_run_ai and os.getenv("FORCE_G4F") == "true":
+            try:
+                from core.ai_client import _FREE_AI_FAIL_COUNT
+                if _FREE_AI_FAIL_COUNT >= 2:
+                    can_run_ai = False
+            except Exception:
+                pass
+
+        if can_run_ai:
             print("[Self-Healing Engine] Engaging Tier 2 Live AI Diagnostic Healing...")
             try:
                 current_dom = self._extract_compact_dom(page)

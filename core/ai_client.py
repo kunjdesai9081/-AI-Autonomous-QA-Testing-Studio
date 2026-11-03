@@ -2,6 +2,7 @@ import asyncio
 import base64
 import os
 import re
+import time
 import warnings
 from concurrent.futures import ThreadPoolExecutor
 
@@ -97,16 +98,33 @@ def _run_g4f_sync(prompt: str, system_message: str) -> str:
         return ""
 
 
+_FREE_AI_FAIL_COUNT = 0
+_FREE_AI_LAST_FAIL_TIME = 0.0
+
+
 def _call_g4f(prompt: str, system_message: str = "You are a helpful AI assistant.") -> str:
+    global _FREE_AI_FAIL_COUNT, _FREE_AI_LAST_FAIL_TIME
+    now = time.time()
+    # If consecutive failures occurred recently, fast-fail on cooldown to prevent blocking runners
+    if _FREE_AI_FAIL_COUNT >= 2 and (now - _FREE_AI_LAST_FAIL_TIME) < 45:
+        raise RuntimeError("Free AI endpoints temporarily cooling down after recent network failures.")
+
     # 1. First attempt Pollinations AI (free, fast, zero paywall errors)
-    poll_res = _call_pollinations(prompt, system_message)
+    # Truncate prompt if exceptionally long for free HTTP gateway stability
+    safe_prompt = prompt if len(prompt) <= 9000 else (prompt[:8500] + "\n[...truncated for free tier limits...]")
+    poll_res = _call_pollinations(safe_prompt, system_message)
     if poll_res and len(poll_res.strip()) > 0:
+        _FREE_AI_FAIL_COUNT = 0
         return poll_res
 
     # 2. Fallback to G4F client
-    res = _run_g4f_sync(prompt, system_message)
+    res = _run_g4f_sync(safe_prompt, system_message)
     if res and len(res.strip()) > 0:
+        _FREE_AI_FAIL_COUNT = 0
         return res
+
+    _FREE_AI_FAIL_COUNT += 1
+    _FREE_AI_LAST_FAIL_TIME = time.time()
     raise RuntimeError("All Free AI endpoints (Pollinations, G4F) failed. Please check network connection.")
 
 

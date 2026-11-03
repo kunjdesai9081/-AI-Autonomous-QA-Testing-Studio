@@ -1785,22 +1785,21 @@ def get_global_target_url(fallback: str = "") -> str:
     disc_flow = st.session_state.get("discovered_flow")
     if isinstance(disc_flow, dict) and disc_flow.get("start_url"):
         return str(disc_flow["start_url"]).strip()
-    saved = load_saved_session_target()
-    if saved:
-        return str(saved).strip()
+    try:
+        from core.session_capturer import get_auth_session_summary
+        saved = get_auth_session_summary("auth.json").get("target_url", "")
+        if saved:
+            return str(saved).strip()
+    except Exception:
+        pass
     return fallback
 
 
 def set_global_target_url(new_url: str):
-    """Synchronizes target URL globally across all tabs and components."""
+    """Synchronizes target URL globally across all tabs and components without mutating instantiated widgets."""
     clean_u = str(new_url or "").strip()
-    if not clean_u:
-        return
-    st.session_state["global_target_url"] = clean_u
-    if "flow_explorer_url" in st.session_state and not st.session_state.get("flow_explorer_url"):
-        st.session_state["flow_explorer_url"] = clean_u
-    if "single_url_input" in st.session_state and not st.session_state.get("single_url_input"):
-        st.session_state["single_url_input"] = clean_u
+    if clean_u:
+        st.session_state["global_target_url"] = clean_u
 
 
 def _on_execution_settings_change():
@@ -2812,6 +2811,7 @@ with tab2:
             def _cb_clear_single_url():
                 st.session_state["single_url_input"] = ""
                 st.session_state["single_user_story_input"] = ""
+                st.session_state["global_target_url"] = ""
                 st.session_state.pop("single_gen_success_msg", None)
 
             st.button(
@@ -2886,6 +2886,7 @@ with tab2:
         with c_dp2:
             def _cb_clear_deep():
                 st.session_state["deep_inspector_url_input"] = ""
+                st.session_state["global_target_url"] = ""
                 if "deep_inspection_result" in st.session_state:
                     del st.session_state["deep_inspection_result"]
             st.button("🧹 Clear / Reset Inspector", on_click=_cb_clear_deep, type="secondary", width='stretch')
@@ -3283,7 +3284,6 @@ with tab2:
                 if not t:
                     t = get_global_target_url()
                 if t:
-                    st.session_state["flow_explorer_url"] = t
                     set_global_target_url(t)
                 return t
 
@@ -3451,6 +3451,7 @@ with tab2:
                     st.session_state["flow_explorer_url"] = ""
                     st.session_state["manual_screen_name_input"] = ""
                     st.session_state["flow_user_story_input"] = ""
+                    st.session_state["global_target_url"] = ""
 
                 st.button(
                     "🧹 Clear",
@@ -3682,6 +3683,12 @@ with tab2:
                     help="Choose which screens to analyze and generate test cases for"
                 )
                 st.session_state.selected_flow_screens = list(selected_labels)
+                if len(selected_labels) == len(all_screen_labels) and len(all_screen_labels) > 0:
+                    st.caption(f"✨ **All {len(all_screen_labels)} discovered screens are selected** for test generation. (Click `×` on any chip to exclude, or click '◻️ Deselect All').")
+                elif selected_labels:
+                    st.caption(f"📌 Showing **{len(selected_labels)}** of **{len(all_screen_labels)}** screens selected.")
+                else:
+                    st.caption("⚠️ No screens selected. Please pick at least one screen or click '☑️ Select All'.")
             with c_sel2:
                 current_selected_screens = st.session_state.get("screen_multiselect_box", [])
                 all_screens_selected = (len(current_selected_screens) == len(all_screen_labels)) and len(all_screen_labels) > 0
@@ -6080,7 +6087,10 @@ if df is not None:
 
             with col_del_case:
                 if st.button(f"🗑️ Delete #{selected_test_idx}", type="secondary", width='stretch', key=f"btn_del_single_test_{selected_test_idx}", help=f"Remove Test #{selected_test_idx} from active suite"):
-                    delete_single_test_case(df, selected_test_idx)
+                    if delete_single_test_case(df, selected_test_idx):
+                        st.toast(f"🗑️ Deleted Test #{selected_test_idx}!", icon="✅")
+                        st.session_state.pop("single_test_selector", None)
+                        st.rerun()
 
             with col_create_bug:
                 with st.popover("🐛 Create Bug", width='stretch'):

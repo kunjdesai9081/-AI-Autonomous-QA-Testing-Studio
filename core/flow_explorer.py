@@ -251,20 +251,30 @@ class AppFlowExplorer:
                 // 2. Collapsible Submenu & Accordion headers in Sidebar
                 const accordionSelectors = [
                     '[data-bs-toggle="collapse"][aria-expanded="false"]',
+                    '[data-toggle="collapse"][aria-expanded="false"]',
+                    '[data-accordion-target]',
+                    '.ant-menu-submenu:not(.ant-menu-submenu-open) > .ant-menu-submenu-title',
                     '.ant-menu-submenu-title',
+                    '.MuiAccordionSummary-root[aria-expanded="false"]',
                     '[class*="nav-group-toggle"][aria-expanded="false"]',
                     '[class*="submenu-toggle"][aria-expanded="false"]',
+                    '[class*="dropdown-toggle"][aria-expanded="false"]',
                     '.accordion-button.collapsed',
                     '[role="button"][aria-expanded="false"]',
                     '.sidebar [aria-expanded="false"]',
                     'aside [aria-expanded="false"]',
                     'nav [aria-expanded="false"]',
+                    '[class*="sidebar"] button[aria-expanded="false"]',
+                    '[class*="sidebar"] a[aria-expanded="false"]',
                     '.menu-item-has-children > a',
                     '.has-arrow',
                     '.pcoded-hasmenu:not(.pcoded-trigger):not(.active) > a',
                     '[class*="hasmenu"]:not([class*="trigger"]):not([class*="active"]) > a',
                     'li:has(ul[class*="submenu"]):not(.pcoded-trigger):not(.active) > a',
                     'li:has(ul):not(.active):not(.open) > a[class*="nav-link"]',
+                    'details:not([open]) > summary',
+                    '[role="treeitem"][aria-expanded="false"]',
+                    '.collapsible-header:not(.active)',
                     '.treeview:not(.active) > a',
                     '.has-treeview:not(.menu-open) > a'
                 ];
@@ -297,8 +307,29 @@ class AppFlowExplorer:
             };
 
             const title = document.title || '';
-            const headings = Array.from(document.querySelectorAll('h1, h2, h3, h4, .page-title, .header-title, [class*="title"], [class*="heading"]'))
-                .filter(isVis).map(h => clean(h.innerText)).filter(Boolean).slice(0, 15);
+            const isNavContainer = el => Boolean(el.closest('nav, aside, .sidebar, header, [role="navigation"], .pcoded-inner-navbar, .sidebar-nav'));
+
+            const allHeadingElements = Array.from(document.querySelectorAll('h1, h2, h3, h4, .page-title, .card-title, [class*="header-title"], [class*="title"], [class*="heading"]'))
+                .filter(isVis);
+
+            // Prioritize headings from main content area over sidebar/nav captions
+            const contentHeadings = allHeadingElements
+                .filter(el => !isNavContainer(el))
+                .map(h => clean(h.innerText))
+                .filter(t => Boolean(t) && !/sidebar|menu/i.test(t));
+
+            // Clean title fallback (e.g. "Companies | Shah Consultancy" -> "Companies")
+            let cleanDocTitle = '';
+            if (document.title) {
+                const parts = clean(document.title).split(/[|\\-–—]/);
+                cleanDocTitle = (parts[0] || '').trim();
+            }
+
+            const primaryHeading = (cleanDocTitle && cleanDocTitle.length >= 2) 
+                ? cleanDocTitle 
+                : ((contentHeadings.length > 0 && contentHeadings[0].length >= 2) ? contentHeadings[0] : (cleanDocTitle || 'App Screen'));
+
+            const headings = contentHeadings.slice(0, 15);
             
             const navLinks = [];
             const seenNav = new Set();
@@ -331,20 +362,40 @@ class AppFlowExplorer:
 
             const processCandidate = (el, forceHref) => {
                 let href = forceHref || el.getAttribute('href') || el.getAttribute('to') || el.getAttribute('routerlink') || el.getAttribute('data-route') || '';
+                let targetEl = el;
                 if (!href && (el.tagName === 'LI' || el.tagName === 'DIV')) {
-                    const childA = el.querySelector('a[href]');
-                    if (childA) href = childA.getAttribute('href') || '';
+                    const childA = el.querySelector('a[href], a');
+                    if (childA) {
+                        href = childA.getAttribute('href') || '';
+                        targetEl = childA;
+                    }
                 }
                 // For clickable buttons without href, require visibility; for direct route links, discover even if in collapsible container
                 if (!href && !isVis(el)) return;
 
-                let txt = clean(el.innerText || el.getAttribute('aria-label') || el.title || el.getAttribute('data-tooltip') || '');
+                // Extract text from dedicated text container if present (e.g. pcoded-mtext, span, or targetEl)
+                const textSpan = el.querySelector('.pcoded-mtext, .menu-title, .nav-text, span:not([class*="icon"]), a');
+                let txt = clean((textSpan && textSpan.innerText) ? textSpan.innerText : (targetEl.innerText || el.getAttribute('aria-label') || el.title || ''));
                 if (!txt && href) {
                     txt = hrefToTitle(href);
                 }
                 const lower = (txt || '').toLowerCase();
-                // Filter out bare profile initials or avatar text containers or sidebar toggles with no href
-                if (!href && (/^(au|pe|admin user|administrator|profile|my profile|account|user|collapse sidebar|collapse)$/i.test(lower) || /^[a-z]{1,3}$/i.test(lower) || lower.includes('collapse') || lower.includes('sidebar-toggle'))) {
+                const isCaptionEl = Boolean(
+                    (el.classList && (el.classList.contains('pcoded-menu-caption') || el.classList.contains('nav-caption'))) ||
+                    (el.matches && el.matches('.pcoded-menu-caption, [class*="menu-caption"], [class*="nav-caption"], [class*="menu-header"], [class*="nav-header"]'))
+                );
+                if (isCaptionEl) {
+                    return;
+                }
+                const pseudoKeywords = new Set([
+                    'sidebar menu', 'navigation menu', 'main menu', 'menu', 'sidebar',
+                    'toggle navigation', 'collapse sidebar', 'collapse', 'sidebar-toggle',
+                    'navigation', 'quick links', 'navigation header', 'menu caption'
+                ]);
+                if (pseudoKeywords.has(lower) || 
+                    /^(au|pe|admin user|administrator|profile|my profile|account|user|collapse sidebar|collapse|sidebar menu|navigation menu|main menu|menu|sidebar|navigation|toggle navigation)$/i.test(lower) ||
+                    (!href && (/^[a-z]{1,3}$/i.test(lower) || lower.includes('collapse') || lower.includes('sidebar-toggle') || lower.includes('menu-toggle') || lower.includes('navbar-toggle')))
+                ) {
                     return;
                 }
                 if (txt && txt.length >= 2 && txt.length < 60 && 
@@ -585,7 +636,8 @@ class AppFlowExplorer:
 
             return {
                 title: title,
-                primary_heading: headings[0] || title || 'App Screen',
+                clean_title: cleanDocTitle,
+                primary_heading: (cleanDocTitle && cleanDocTitle.length >= 2) ? cleanDocTitle : (headings[0] || title || 'App Screen'),
                 headings: headings,
                 active_tab: activeTab,
                 is_modal_open: isModalOpen,
@@ -1817,8 +1869,9 @@ class AppFlowExplorer:
                     pass
                 _safe_settle(page, min_ms=300)
                 root_landing_url = page.url or start_url
-                visited_urls.add(_clean_stable_url(root_landing_url))
-                queued_urls.add(_clean_stable_url(root_landing_url))
+                root_stable_url = _clean_stable_url(root_landing_url)
+                visited_urls.add(root_stable_url)
+                queued_urls.add(root_stable_url)
 
                 # Expand slide menus, drawers, and sidebar accordions to expose all sub-modules
                 try:
@@ -1904,11 +1957,18 @@ class AppFlowExplorer:
                         return False
                     return True
 
+                pseudo_keywords = {
+                    "sidebar menu", "navigation menu", "main menu", "menu", "sidebar", 
+                    "toggle navigation", "collapse sidebar", "collapse", "sidebar-toggle", 
+                    "navigation header", "menu caption", "quick links"
+                }
+
                 queue = deque()
                 for cand in summary.get("nav_links", []):
                     c_name = cand.get("text", "").strip()
                     c_href = str(cand.get("href", "")).strip()
-                    if classify_action_intent(c_name) == ActionSafetyCategory.DESTRUCTIVE:
+                    low_c = c_name.strip().lower()
+                    if not low_c or low_c in pseudo_keywords or classify_action_intent(c_name) == ActionSafetyCategory.DESTRUCTIVE:
                         continue
                     full_u = urljoin(root_landing_url, c_href) if c_href else ""
                     if full_u and _is_safe_internal_link(full_u):
@@ -1916,7 +1976,8 @@ class AppFlowExplorer:
                         if stable_u not in queued_urls and stable_u not in visited_urls:
                             queued_urls.add(stable_u)
                             queue.append((c_name, c_href, full_u, 1, root_landing_url))
-                    elif c_name and c_name.lower() not in seen_screen_signatures:
+                    elif c_name and low_c not in seen_screen_signatures and low_c not in queued_urls:
+                        queued_urls.add(low_c)
                         queue.append((c_name, c_href, "", 1, root_landing_url))
 
                 print(f"[Flow Explorer] Initialized BFS queue with {len(queue)} candidate routes from root screen.")
@@ -1939,19 +2000,21 @@ class AppFlowExplorer:
                         continue
                     if full_url:
                         stable_full = _clean_stable_url(full_url)
-                        if stable_full in visited_urls or stable_full in {_clean_stable_url(s.get("url", "")) for s in discovered_screens}:
-                            print(f"[Flow Explorer] Skipping candidate '{cand_name}' because full URL '{stable_full}' was already visited/captured")
-                            continue
-                    else:
-                        if cand_name.lower() in seen_screen_signatures:
-                            print(f"[Flow Explorer] Skipping candidate '{cand_name}' because '{cand_name.lower()}' is in seen_screen_signatures")
-                            continue
+                        # If candidate has distinct sub-path that was already captured and visited, skip it
+                        if stable_full != root_stable_url and (stable_full in visited_urls or stable_full in {_clean_stable_url(s.get("url", "")) for s in discovered_screens}):
+                            if cand_name.lower() in seen_screen_signatures:
+                                print(f"[Flow Explorer] Skipping candidate '{cand_name}' because full URL '{stable_full}' was already visited/captured")
+                                continue
+                    if cand_name.lower() in seen_screen_signatures and (not full_url or _clean_stable_url(full_url) in {_clean_stable_url(s.get("url", "")) for s in discovered_screens}):
+                        print(f"[Flow Explorer] Skipping candidate '{cand_name}' because '{cand_name.lower()}' is already in seen_screen_signatures")
+                        continue
                     if classify_action_intent(cand_name) == ActionSafetyCategory.DESTRUCTIVE:
                         print(f"[Flow Explorer] Safety Shield: Skipping destructive navigation candidate '{cand_name}'")
                         continue
 
                     try:
                         prev_url = page.url
+                        prev_stable_url = _clean_stable_url(prev_url)
                         prev_summary = self._extract_page_summary(page)
                         prev_dom_sig = _dom_fingerprint(prev_summary, prev_url)
                         navigated = False
@@ -1991,23 +2054,37 @@ class AppFlowExplorer:
                         # Strategy 1: SPA In-Page Click navigation (Primary method for React, Vue, Angular, S3-hosted SPAs)
                         for sel in leaf_selectors:
                             try:
-                                loc = page.locator(sel).last if ("nav-item" not in sel and "title=" not in sel) else page.locator(sel).first
-                                if loc.count() > 0:
-                                    if not loc.is_visible():
+                                loc = None
+                                matches = page.locator(sel)
+                                m_cnt = matches.count()
+                                if m_cnt > 0:
+                                    for m_idx in range(m_cnt):
+                                        c_el = matches.nth(m_idx)
+                                        if c_el.is_visible():
+                                            loc = c_el
+                                            break
+                                    if loc is None:
                                         self._expand_slide_menus_and_accordions(page)
                                         _safe_settle(page, min_ms=250)
-                                    if not loc.is_visible():
-                                        parent_hdr = page.locator(f'li:has(*:has-text("{safe_cname}")) > a, .pcoded-hasmenu:has(*:has-text("{safe_cname}")) > a').first
-                                        if parent_hdr.count() > 0 and parent_hdr.is_visible():
-                                            parent_hdr.click(force=True)
-                                            _safe_settle(page, min_ms=250)
-                                    if loc.is_visible():
-                                        print(f"[Flow Explorer] Clicking SPA navigation target '{cand_name}' (depth={cand_depth})")
-                                        loc.click(force=True)
-                                        _safe_settle(page, min_ms=400)
-                                        navigated = True
-                                        visited_urls.add(_clean_stable_url(page.url))
-                                        break
+                                        for m_idx in range(matches.count()):
+                                            c_el = matches.nth(m_idx)
+                                            if c_el.is_visible():
+                                                loc = c_el
+                                                break
+                                    if loc is None and m_cnt > 0:
+                                        loc = matches.first
+
+                                if loc is not None:
+                                    try:
+                                        loc.scroll_into_view_if_needed(timeout=500)
+                                    except Exception:
+                                        pass
+                                    print(f"[Flow Explorer] Clicking SPA navigation target '{cand_name}' (depth={cand_depth})")
+                                    loc.click(force=True)
+                                    _safe_settle(page, min_ms=450)
+                                    navigated = True
+                                    visited_urls.add(_clean_stable_url(page.url))
+                                    break
                             except Exception as e_sel:
                                 continue
 
@@ -2020,30 +2097,30 @@ class AppFlowExplorer:
                                 self._expand_slide_menus_and_accordions(page)
                                 _safe_settle(page, min_ms=250)
                                 for sel in leaf_selectors:
-                                    loc = page.locator(sel).last if "nav-item" not in sel else page.locator(sel).first
-                                    if loc.count() > 0:
-                                        if not loc.is_visible():
-                                            self._expand_slide_menus_and_accordions(page)
-                                            _safe_settle(page, min_ms=250)
-                                        if not loc.is_visible():
-                                            parent_hdr = page.locator(f'li:has(*:has-text("{safe_cname}")) > a, .pcoded-hasmenu:has(*:has-text("{safe_cname}")) > a').first
-                                            if parent_hdr.count() > 0 and parent_hdr.is_visible():
-                                                parent_hdr.click(force=True)
-                                                _safe_settle(page, min_ms=250)
-                                        if loc.is_visible():
-                                            print(f"[Flow Explorer] Located '{cand_name}' on root screen. Clicking...")
-                                            loc.click(force=True)
-                                            _safe_settle(page, min_ms=400)
-                                            navigated = True
-                                            visited_urls.add(_clean_stable_url(page.url))
+                                    matches = page.locator(sel)
+                                    loc = None
+                                    for m_idx in range(matches.count()):
+                                        c_el = matches.nth(m_idx)
+                                        if c_el.is_visible():
+                                            loc = c_el
                                             break
+                                    if loc is None and matches.count() > 0:
+                                        loc = matches.first
+                                    if loc is not None and loc.is_visible():
+                                        print(f"[Flow Explorer] Located '{cand_name}' on root screen. Clicking...")
+                                        loc.click(force=True)
+                                        _safe_settle(page, min_ms=400)
+                                        navigated = True
+                                        visited_urls.add(_clean_stable_url(page.url))
+                                        break
                             except Exception as ret_err:
                                 print(f"[Flow Explorer] Return-to-base note: {ret_err}")
 
-                        # Strategy 3: Direct URL navigation fallback if in-page clicks were not viable
-                        if not navigated and full_url and _is_safe_internal_link(full_url):
+                        # Strategy 3: Direct URL navigation fallback if in-page clicks were not viable or didn't change URL
+                        curr_after_click = _clean_stable_url(page.url)
+                        if (not navigated or curr_after_click == prev_stable_url) and full_url and _is_safe_internal_link(full_url):
                             stable_full = _clean_stable_url(full_url)
-                            if stable_full not in visited_urls and stable_full not in {_clean_stable_url(s.get("url", "")) for s in discovered_screens}:
+                            if stable_full != prev_stable_url and (stable_full not in visited_urls or stable_full not in {_clean_stable_url(s.get("url", "")) for s in discovered_screens}):
                                 print(f"[Flow Explorer] Direct URL fallback (depth={cand_depth}) to: {full_url} ({cand_name})")
                                 page.goto(full_url, wait_until="domcontentloaded", timeout=12000)
                                 _safe_settle(page, min_ms=350)
@@ -2092,24 +2169,42 @@ class AppFlowExplorer:
                             is_dialog_open = bool(sub_summary.get("is_modal_open"))
                             dom_sig = _dom_fingerprint(sub_summary, page.url)
 
-                            # Duplicate Check 1: Target URL was already captured and DOM fingerprint is not distinct
-                            if current_stable_url in already_captured_urls and not is_dialog_open and dom_sig in seen_screen_signatures:
-                                print(f"[Flow Explorer] Skipping already-captured screen URL & DOM: {current_stable_url} ('{cand_name}')")
+                            # Check 1: Exclude pseudo-navigation drawer toggles
+                            lower_cand = cand_name.strip().lower()
+                            lower_title = screen_title.strip().lower()
+                            pseudo_keywords = {"sidebar menu", "navigation menu", "main menu", "menu", "sidebar", "toggle navigation", "collapse sidebar", "collapse", "sidebar-toggle"}
+                            if (lower_cand in pseudo_keywords or lower_title in pseudo_keywords) and not is_dialog_open:
+                                print(f"[Flow Explorer] Skipping pseudo-navigation toggle '{cand_name}'")
                                 continue
 
-                            # Duplicate Check 2: URL did not change from previous screen and DOM fingerprint remained identical
-                            if current_stable_url == prev_stable_url and not is_dialog_open and dom_sig in seen_screen_signatures:
-                                print(f"[Flow Explorer] Skipping unnavigated target '{cand_name}' (URL and DOM remained identical)")
+                            # Check 2: Verify whether page content genuinely updated
+                            headings_diff = set(sub_summary.get("headings", [])) - set(prev_summary.get("headings", []))
+                            inputs_diff = set(sub_summary.get("inputs", [])) - set(prev_summary.get("inputs", []))
+                            tables_count = sub_summary.get("total_tables", 0)
+                            prev_tables_count = prev_summary.get("total_tables", 0)
+                            primary_h_changed = bool(sub_summary.get("primary_heading") and sub_summary.get("primary_heading").lower() != prev_summary.get("primary_heading", "").lower())
+                            url_changed = (current_stable_url != prev_stable_url)
+
+                            has_navigated = (
+                                url_changed
+                                or is_dialog_open
+                                or primary_h_changed
+                                or bool(headings_diff)
+                                or bool(inputs_diff)
+                                or (tables_count != prev_tables_count and tables_count > 0)
+                                or (dom_sig != prev_dom_sig and len(sub_summary.get("headings", [])) > 0)
+                            )
+                            if not has_navigated and not is_dialog_open:
+                                print(f"[Flow Explorer] Skipping unnavigated target '{cand_name}' (content and URL remained unchanged)")
                                 continue
 
-                            # Duplicate Check 3: Candidate navigation looped back to root landing view state
-                            if current_stable_url == root_stable_url and not is_dialog_open and dom_sig in seen_screen_signatures:
-                                print(f"[Flow Explorer] Skipping root landing URL return for candidate '{cand_name}'")
-                                continue
-
-                            # Duplicate Check 4: DOM functional fingerprint was already captured
+                            # Check 3: Duplicate detection (exact DOM functional fingerprint or identical screen title + URL)
                             if dom_sig in seen_screen_signatures:
                                 print(f"[Flow Explorer] Skipping duplicate DOM view state for '{cand_name}' at {page.url}")
+                                continue
+
+                            if (lower_title in seen_screen_signatures or lower_cand in seen_screen_signatures) and current_stable_url in already_captured_urls and not is_dialog_open and not primary_h_changed:
+                                print(f"[Flow Explorer] Skipping already-captured screen '{screen_title}' at {current_stable_url}")
                                 continue
 
                             visited_urls.add(current_stable_url)
@@ -2178,15 +2273,20 @@ class AppFlowExplorer:
                                 for child_cand in sub_summary.get("nav_links", []):
                                     ch_name = child_cand.get("text", "").strip()
                                     ch_href = str(child_cand.get("href", "")).strip()
-                                    if classify_action_intent(ch_name) == ActionSafetyCategory.DESTRUCTIVE:
+                                    low_ch = ch_name.strip().lower()
+                                    if not low_ch or low_ch in pseudo_keywords or classify_action_intent(ch_name) == ActionSafetyCategory.DESTRUCTIVE:
                                         continue
                                     ch_full = urljoin(page.url, ch_href) if ch_href else ""
                                     if ch_full and _is_safe_internal_link(ch_full):
                                         stable_ch = _clean_stable_url(ch_full)
-                                        if stable_ch not in queued_urls and stable_ch not in visited_urls and stable_ch not in already_captured_urls:
+                                        if stable_ch != root_stable_url and stable_ch not in queued_urls and stable_ch not in visited_urls and stable_ch not in already_captured_urls:
                                             queued_urls.add(stable_ch)
                                             queue.append((ch_name or hrefToTitle(ch_href), ch_href, ch_full, cand_depth + 1, page.url))
-                                    elif ch_name and ch_name.lower() not in seen_screen_signatures:
+                                        elif ch_name and ch_name.lower() not in seen_screen_signatures and ch_name.lower() not in queued_urls:
+                                            queued_urls.add(ch_name.lower())
+                                            queue.append((ch_name, ch_href, "", cand_depth + 1, page.url))
+                                    elif ch_name and ch_name.lower() not in seen_screen_signatures and ch_name.lower() not in queued_urls:
+                                        queued_urls.add(ch_name.lower())
                                         queue.append((ch_name, ch_href, "", cand_depth + 1, page.url))
 
                     except Exception as nav_err:

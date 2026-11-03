@@ -29,7 +29,7 @@ class ClickUpClient:
         return bool(self.api_token and (self.default_list_id or os.getenv("CLICKUP_LIST_ID")))
 
     def verify_credentials(self, api_token: str = None) -> dict:
-        token = (api_token or self.api_token).strip()
+        token = str(api_token or self.api_token or "").strip()
         if not token:
             return {"success": False, "error": "API Token is empty."}
         try:
@@ -64,8 +64,11 @@ class ClickUpClient:
         Creates a structured bug task in ClickUp from a failed test case row
         and attaches the execution screenshot if available.
         """
-        token = (api_token or self.api_token).strip()
-        target_list = str(list_id or self.default_list_id).strip()
+        token = str(api_token or self.api_token or "").strip()
+        raw_list = list_id or self.default_list_id or ""
+        target_list = str(raw_list).strip()
+        if target_list.lower() in ("none", "nan"):
+            target_list = ""
 
         if not token:
             return {"success": False, "error": "ClickUp API Token is missing."}

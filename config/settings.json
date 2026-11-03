@@ -1,12 +1,12 @@
 {
-  "force_g4f": false,
+  "force_g4f": true,
   "show_browser": true,
   "enable_visual": true,
   "show_adapter_cols": true,
   "test_variables": [
     {
-      "Key": "Phone",
-      "Value": "9876543111"
+      "Key": "email",
+      "Value": "Kunjhdc@yopmail.com"
     },
     {
       "Key": "Password",

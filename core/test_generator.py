@@ -1931,8 +1931,14 @@ class TestGenerator:
 
             try:
                 if on_progress_callback:
-                    on_progress_callback(0.25, f"Navigating to {url} and awaiting network idle...")
-                page.goto(url, wait_until="networkidle", timeout=30000)
+                    on_progress_callback(0.25, f"Navigating to {url}...")
+                try:
+                    page.goto(url, wait_until="networkidle", timeout=12000)
+                except Exception:
+                    try:
+                        page.goto(url, wait_until="domcontentloaded", timeout=15000)
+                    except Exception:
+                        page.goto(url, timeout=15000)
 
                 # Capture snapshot screenshot
                 if on_progress_callback:
@@ -2570,6 +2576,13 @@ class TestGenerator:
                 s = {"name": str(s), "url": start_url, "screenshot": primary_ss, "sub_features": []}
             screen_name = s.get("name", f"Screen #{idx}")
             screen_url = s.get("url", start_url)
+
+            # Filter out non-authentic screens (e.g. sidebar menu drawer toggle)
+            lower_name = screen_name.strip().lower()
+            if any(lower_name == ign for ign in ["sidebar menu", "navigation menu", "main menu", "menu", "sidebar", "toggle navigation", "collapse sidebar", "collapse"]):
+                print(f"[Flow Generator] Skipping pseudo-screen '{screen_name}' (menu/sidebar drawer toggle)")
+                continue
+
             screen_ss = s.get("screenshot", primary_ss)
             raw_sub_features = s.get("sub_features", [])
             sub_features = [

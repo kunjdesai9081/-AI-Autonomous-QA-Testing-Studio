@@ -264,7 +264,8 @@ CRITICAL TEST STEP QUALITY & EXECUTION RULES:
         self, state: TestGenerationState, client: genai.Client, ai_client
     ) -> TestGenerationState:
         story_section = f"\nUSER STORY / BUSINESS GOAL / SCENARIO CONTEXT:\n{state.user_story}\n" if state.user_story else ""
-        dom_content = state.swagger_spec[:25000] if state.swagger_spec else ""
+        dom_limit = 7000 if os.getenv("FORCE_G4F") == "true" else 25000
+        dom_content = state.swagger_spec[:dom_limit] if state.swagger_spec else ""
         prompt = f"""
         Analyze the following Multi-Zone DOM structure extracted from {state.url}:
         {story_section}
