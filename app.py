@@ -2793,7 +2793,7 @@ with tab2:
             single_strat = st.selectbox(
                 "Generation Engine Strategy",
                 options=[
-                    ("all", "🌐 Full 360° Suite (AI + Hybrid + Rule Engine)"),
+                    ("all", "🌐 Full 360° Suite (All Engines: Robust v4 + AI + Hybrid + Rule)"),
                     ("robust_v4", "⚡ RobustEngine v4 (7-Category Deep Matrix - 100% Guaranteed)"),
                     ("ai_full", "🤖 AI Generated (Full Scenarios & Code)"),
                     ("hybrid", "🤖+⚙️ Hybrid (AI Steps + Deterministic Code)"),
@@ -3030,7 +3030,8 @@ with tab2:
                 synth_strategy = st.selectbox(
                     "Test Synthesis Strategy",
                     options=[
-                        ("all", "🌐 Full 360° Suite (AI + Hybrid + Rule Engine)"),
+                        ("all", "🌐 Full 360° Suite (All Engines: AI + Robust v4 + Hybrid + Rule)"),
+                        ("robust_v4", "⚡ RobustEngine v4 (7-Category Deep Matrix, 0 Tokens)"),
                         ("ai_full", "🤖 AI Generated (Full Scenarios & Code)"),
                         ("hybrid", "🤖+⚙️ Hybrid (AI Steps + Deterministic Code)"),
                         ("rule_engine", "⚙️ Rule Engine (DOM/A11y/Network - 0 Tokens)"),
@@ -3696,19 +3697,20 @@ with tab2:
                     def _cb_toggle_screens():
                         st.session_state.selected_flow_screens = []
                         st.session_state["screen_multiselect_box"] = []
-                    st.button(f"◻️ Deselect All ({len(all_screen_labels)})", on_click=_cb_toggle_screens, width='stretch', help="Deselect all screens", key="btn_flow_toggle_screens")
+                    st.button(f"◻️ Deselect All ({len(all_screen_labels)})", on_click=_cb_toggle_screens, width='stretch', help="Deselect all screens", key="btn_flow_deselect_all_screens")
                 else:
                     def _cb_toggle_screens():
                         st.session_state.selected_flow_screens = list(all_screen_labels)
                         st.session_state["screen_multiselect_box"] = list(all_screen_labels)
-                    st.button(f"☑️ Select All ({len(all_screen_labels)})", on_click=_cb_toggle_screens, width='stretch', help="Select all screens for test generation", key="btn_flow_toggle_screens")
+                    st.button(f"☑️ Select All ({len(all_screen_labels)})", on_click=_cb_toggle_screens, width='stretch', help="Select all screens for test generation", key="btn_flow_select_all_screens")
 
             selected_indices = [screen_label_map[lbl] for lbl in selected_labels if lbl in screen_label_map]
 
             c_strat1, c_strat2 = st.columns([2.8, 1.2], vertical_alignment="bottom")
             with c_strat1:
                 flow_strategy_opts = [
-                    "🌐 Full 360° Suite (AI + Hybrid + Rule Engine)",
+                    "🌐 Full 360° Suite (All Engines: AI + Robust v4 + Hybrid + Rule)",
+                    "⚡ RobustEngine v4 (7-Category Deep Matrix, 0 tokens)",
                     "🤖 AI Generated (Full) only",
                     "🤖+⚙️ AI Step + ⚙️ Template Code (Hybrid)",
                     "⚙️ Rule Engine only (Deterministic, 0 tokens)",
@@ -3717,11 +3719,13 @@ with tab2:
                     "⚙️ Test Synthesis Strategy:",
                     options=flow_strategy_opts,
                     key="flow_synth_strategy_select",
-                    help="Choose generation strategy: Full 360° suite, pure AI Generated tests, Hybrid (AI Step + Template Code), or deterministic Rule Engine."
+                    help="Choose generation strategy: Full 360° suite (all algorithms combined), RobustEngine v4, pure AI Generated tests, Hybrid (AI Step + Template Code), or deterministic Rule Engine."
                 )
             with c_strat2:
                 flow_strat_code = {
+                    "🌐 Full 360° Suite (All Engines: AI + Robust v4 + Hybrid + Rule)": "all",
                     "🌐 Full 360° Suite (AI + Hybrid + Rule Engine)": "all",
+                    "⚡ RobustEngine v4 (7-Category Deep Matrix, 0 tokens)": "robust_v4",
                     "🤖 AI Generated (Full) only": "ai_full",
                     "🤖+⚙️ AI Step + ⚙️ Template Code (Hybrid)": "hybrid",
                     "⚙️ Rule Engine only (Deterministic, 0 tokens)": "rule_engine",
@@ -3803,8 +3807,8 @@ with tab2:
                         with c_meta2:
                             with st.popover(f"⚡ Generate #{idx + 1}", width='stretch', help=f"1-Click generate tests for Screen #{idx + 1}"):
                                 st.markdown(f"###### ⚡ Generate for Screen #{idx + 1}:")
-                                if st.button("🌐 Full 360° Suite", key=f"gen_acc_all_{idx}", width='stretch', type="primary"):
-                                    _run_single_scr_gen(idx, scr_name, "all", "🌐 Full 360° Suite")
+                                if st.button("🌐 Full 360° Suite", key=f"gen_acc_all_{idx}", width='stretch', type="primary", help=f"1-Click generate comprehensive 360° suite across All Engines (Robust v4 + AI + Hybrid + Rule) for Screen #{idx + 1}"):
+                                    _run_single_scr_gen(idx, scr_name, "all", "🌐 Full 360° Suite (All Engines: Robust v4 + AI + Hybrid + Rule)")
                                 if st.button("⚡ RobustEngine v4", key=f"gen_acc_robust_{idx}", width='stretch'):
                                     _run_single_scr_gen(idx, scr_name, "robust_v4", "⚡ RobustEngine v4")
                                 if st.button("🤖 AI Only", key=f"gen_acc_ai_{idx}", width='stretch'):
@@ -3900,8 +3904,8 @@ with tab2:
 
                                 with st.popover("⚡ Generate", width='stretch', help=f"1-Click generate tests for Screen #{actual_idx + 1}"):
                                     st.markdown(f"###### ⚡ Generate for Screen #{actual_idx + 1}:")
-                                    if st.button("🌐 Full 360° Suite", key=f"gen_grid_all_{actual_idx}", width='stretch', type="primary"):
-                                        _run_single_scr_gen(actual_idx, scr.get('name', 'Page'), "all", "🌐 Full 360° Suite")
+                                    if st.button("🌐 Full 360° Suite", key=f"gen_grid_all_{actual_idx}", width='stretch', type="primary", help=f"1-Click generate comprehensive 360° suite across All Engines (Robust v4 + AI + Hybrid + Rule) for Screen #{actual_idx + 1}"):
+                                        _run_single_scr_gen(actual_idx, scr.get('name', 'Page'), "all", "🌐 Full 360° Suite (All Engines: Robust v4 + AI + Hybrid + Rule)")
                                     if st.button("⚡ RobustEngine v4", key=f"gen_grid_robust_{actual_idx}", width='stretch'):
                                         _run_single_scr_gen(actual_idx, scr.get('name', 'Page'), "robust_v4", "⚡ RobustEngine v4")
                                     if st.button("🤖 AI Only", key=f"gen_grid_ai_{actual_idx}", width='stretch'):
@@ -3990,8 +3994,8 @@ with tab2:
             )
             c_fgen_all, c_fgen_robust, c_fgen_ai, c_fgen_hyb, c_fgen_rule = st.columns(5, vertical_alignment="bottom")
             with c_fgen_all:
-                if st.button("🌐 All (360°)", type="primary", key="flow_gen_btn_all", width='stretch', help="Generate full 360° suite across AI + Hybrid + Rule Engine"):
-                    _execute_flow_generation("all", "🌐 Full 360° Suite")
+                if st.button("🌐 All (360°)", type="primary", key="flow_gen_btn_all", width='stretch', help="Generate comprehensive 360° suite across ALL engines: ⚡ RobustEngine v4 + 🤖 AI Full + 🤖+⚙️ Hybrid + ⚙️ Rule Engine"):
+                    _execute_flow_generation("all", "🌐 Full 360° Suite (All Engines: Robust v4 + AI + Hybrid + Rule)")
             with c_fgen_robust:
                 if st.button("⚡ Robust v4", type="secondary", key="flow_gen_btn_robust", width='stretch', help="Generate 100% resilient 7-Category Deep Matrix suite with chained stateful journeys (0 tokens, 100% offline guaranteed)"):
                     _execute_flow_generation("robust_v4", "⚡ RobustEngine v4")

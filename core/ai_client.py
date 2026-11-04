@@ -17,6 +17,10 @@ import google.generativeai as genai
 
 # Shared connection pool session to reuse TCP/TLS connections
 _HTTP_SESSION = requests.Session()
+_HTTP_SESSION.headers.update({
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Accept": "application/json, text/plain, */*",
+})
 _adapter = HTTPAdapter(pool_connections=10, pool_maxsize=20, max_retries=1)
 _HTTP_SESSION.mount("https://", _adapter)
 _HTTP_SESSION.mount("http://", _adapter)
@@ -38,7 +42,7 @@ def _call_pollinations(prompt: str, system_message: str = "You are a helpful AI 
             }
             if m:
                 payload["model"] = m
-            res = _HTTP_SESSION.post(url, json=payload, timeout=20)
+            res = _HTTP_SESSION.post(url, json=payload, timeout=12)
             if res.status_code == 200 and res.text and len(res.text.strip()) > 0:
                 raw = res.text.strip()
                 try:
@@ -54,6 +58,8 @@ def _call_pollinations(prompt: str, system_message: str = "You are a helpful AI 
                 except Exception:
                     pass
                 return raw
+            elif res.status_code == 402:
+                print("[Free AI Agent] Public Free AI rate limit reached (1 reply every 45s per IP).")
         except Exception:
             continue
     return ""

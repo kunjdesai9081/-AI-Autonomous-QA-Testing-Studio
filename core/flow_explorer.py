@@ -248,39 +248,27 @@ class AppFlowExplorer:
                     });
                 }
 
-                // 2. Collapsible Submenu & Accordion headers in Sidebar
+                // 2. Collapsible Submenu & Accordion headers in Sidebar (NEVER click <a> tags or navigation links)
+                const origHref = window.location.href;
                 const accordionSelectors = [
-                    '[data-bs-toggle="collapse"][aria-expanded="false"]',
-                    '[data-toggle="collapse"][aria-expanded="false"]',
-                    '[data-accordion-target]',
-                    '.ant-menu-submenu:not(.ant-menu-submenu-open) > .ant-menu-submenu-title',
-                    '.ant-menu-submenu-title',
-                    '.MuiAccordionSummary-root[aria-expanded="false"]',
-                    '[class*="nav-group-toggle"][aria-expanded="false"]',
-                    '[class*="submenu-toggle"][aria-expanded="false"]',
-                    '[class*="dropdown-toggle"][aria-expanded="false"]',
+                    'button[data-bs-toggle="collapse"][aria-expanded="false"]',
+                    'button[data-toggle="collapse"][aria-expanded="false"]',
+                    'button[data-accordion-target]',
                     '.accordion-button.collapsed',
-                    '[role="button"][aria-expanded="false"]',
-                    '.sidebar [aria-expanded="false"]',
-                    'aside [aria-expanded="false"]',
-                    'nav [aria-expanded="false"]',
-                    '[class*="sidebar"] button[aria-expanded="false"]',
-                    '[class*="sidebar"] a[aria-expanded="false"]',
-                    '.menu-item-has-children > a',
-                    '.has-arrow',
-                    '.pcoded-hasmenu:not(.pcoded-trigger):not(.active) > a',
-                    '[class*="hasmenu"]:not([class*="trigger"]):not([class*="active"]) > a',
-                    'li:has(ul[class*="submenu"]):not(.pcoded-trigger):not(.active) > a',
-                    'li:has(ul):not(.active):not(.open) > a[class*="nav-link"]',
                     'details:not([open]) > summary',
                     '[role="treeitem"][aria-expanded="false"]',
                     '.collapsible-header:not(.active)',
-                    '.treeview:not(.active) > a',
-                    '.has-treeview:not(.menu-open) > a'
+                    'button[class*="nav-group-toggle"][aria-expanded="false"]',
+                    'button[class*="submenu-toggle"][aria-expanded="false"]'
                 ];
                 for (const sel of accordionSelectors) {
+                    if (window.location.href !== origHref) break;
                     document.querySelectorAll(sel).forEach(hdr => {
+                        if (window.location.href !== origHref) return;
                         if (isVis(hdr)) {
+                            if (hdr.tagName === 'A' || hdr.getAttribute('href') || hdr.closest('a')) {
+                                return;
+                            }
                             try { hdr.click(); expandedCount++; } catch(e){}
                         }
                     });
